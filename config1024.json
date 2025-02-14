@@ -1,0 +1,16 @@
+
+{
+    "MODES": 1024,
+    "instant": 10,
+    "inStateType": "Vacuum",
+    "arrayParameters": null,
+    "dataDirectory": "./sim-1024-1plt-dL0375-k12-5/",
+    "plotsDirectory": "./plots/1024-1plt-plots/",
+    "plotsDataDirectory": "./plotsData/1024-1plt-data/",
+    "specialModes": [1, 2, 3, 4, 5],
+    "listOfWantedComputations": [
+        "FullLogNeg"
+    ],
+    "tryToLoad": true,
+    "saveFig": true
+}
