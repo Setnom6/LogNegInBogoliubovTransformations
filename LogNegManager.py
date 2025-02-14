@@ -6,6 +6,7 @@ from typing import Dict, Any, List, Tuple
 import os
 from datetime import datetime
 import re
+import matplotlib as mpl
 
 class InitialState(Enum):
     Vacuum = "vacuum"
@@ -19,6 +20,7 @@ class TypeOfData(Enum):
     OneByOneForAGivenMode = "oneByOneForAGivenMode"
     OddVSEven = "oddVSEven"
     OccupationNumber = "occupationNumber"
+    Difference = "differenceArray"
 
 
 class LogNegManager:
@@ -88,8 +90,8 @@ class LogNegManager:
         a=np.arange(1,self.MODES+1)
         dir = directory
         for i in a:
-            solsalpha[i]=pl.loadtxt(dir+"alpha-n"+self.MODES+"-"+str(i)+".txt")
-            solsbeta[i]=pl.loadtxt(dir+"beta-n"+self.MODES+"-"+str(i)+".txt")      
+            solsalpha[i]=pl.loadtxt(dir+"alpha-n"+str(self.MODES)+"-"+str(i)+".txt")
+            solsbeta[i]=pl.loadtxt(dir+"beta-n"+str(self.MODES)+"-"+str(i)+".txt")      
 
         time=len(solsbeta[1][:,0])
 
@@ -106,11 +108,11 @@ class LogNegManager:
         #Label i2 corresponds to in MODES and i1 to out MODES
 
         #We now save the array at time we are interested in given by the variable "instant"
-        instantToPlot = min(self.instantToPlot, time-1)
+        self.instantToPlot = min(self.instantToPlot, time-1)
         calphas_tot_array = np.zeros((self.MODES, self.MODES),dtype = 'complex_')
         cbetas_tot_array = np.zeros((self.MODES, self.MODES),dtype = 'complex_')
-        calphas_tot_array = calphas_array[instantToPlot, :, :]
-        cbetas_tot_array = cbetas_array[instantToPlot, :, :]
+        calphas_tot_array = calphas_array[self.instantToPlot, :, :]
+        cbetas_tot_array = cbetas_array[self.instantToPlot, :, :]
 
         #For our simulations
         Smatrix = np.zeros((2*self.MODES, 2*self.MODES), dtype=complex)
@@ -403,10 +405,25 @@ class LogNegManager:
         occupationNumber = dict()
         stateToApply = self.outState if not inState else self.inState
 
-        for index in range(self.plottingInfo["NumberOfStates"]):
-            occupationNumber[index+1] = stateToApply[index+1].occupation_number()
+        for index in range(1, self.plottingInfo["NumberOfStates"] + 1):
+            occupationNumber[index] = stateToApply[index].occupation_number().flatten()
 
         return occupationNumber
+    
+    def computeLogNegDifference(self, logNegArray):
+        # Obtener el LogNeg antes de la transformación
+        if logNegArray is None:
+            logNegArray = self.computeFullLogNeg()
+        logNegArrayBefore = self.computeFullLogNeg(inState=True)
+
+        # Calcular la diferencia entre los dos LogNegs
+        differenceArray = dict()
+        for index in range(1, self.plottingInfo["NumberOfStates"] + 1):
+            differenceArray[index] = np.zeros(self.MODES)
+            for mode in range(self.MODES):
+                differenceArray[index][mode] = logNegArray[index][mode] - logNegArrayBefore[index][mode]
+
+        return differenceArray
     
     def getFigureName(self, plotsRelativeDirectory: str, typeOfData: TypeOfData, date: str = "", beforeTransformation: bool = False) -> str:
         """
@@ -459,7 +476,7 @@ class LogNegManager:
     def saveData(self, dataRelativeDirectory: str, data: Dict[int, np.ndarray], typeOfData: TypeOfData, date: str = "", beforeTransformation: bool = False) -> None:
         """
         Method to save the data in the files with the standarized format.
-        At the moment it only saves the data if is of type: FullLogNeg, HighestOneByOne, OddVSEven, OccupationNumber
+        At the moment it only saves the data if is of type: FullLogNeg, HighestOneByOne, OddVSEven, OccupationNumber, Difference
 
         Parameters:
         dataRelativeDirectory: str
@@ -482,21 +499,26 @@ class LogNegManager:
 
             if typeOfData == TypeOfData.OneByOneForAGivenMode:
                 raise NotImplementedError("For {} data one have to save manually".format(typeOfData.value))
-            if self.arrayParameters is not None:
-                dataToSave = np.zeros(self.MODES+1)
-                dataToSave[0] = self.arrayParameters[index] if self.arrayParameters is not None else 0
-                dataToSave[1:] = data[index+1]
-
+            
+            if typeOfData == TypeOfData.HighestOneByOne:
+                dataToSave = np.zeros((2, self.MODES))
+                dataToSave[0, :] = data[index + 1][0]
+                dataToSave[1, :] = data[index + 1][1]
             else:
-                dataToSave = data[index+1]
+                if self.arrayParameters is not None:
+                    dataToSave = np.zeros(self.MODES + 1)
+                    dataToSave[0] = self.arrayParameters[index] if self.arrayParameters is not None else 0
+                    dataToSave[1:] = data[index + 1]
+                else:
+                    dataToSave = data[index + 1]
 
-            np.savetxt("{}_plotNumber_{}.txt".format(fileName, index+1), dataToSave)
+            np.savetxt("{}_plotNumber_{}.txt".format(fileName, index + 1), dataToSave)
             
     
     def loadData(self, dataRelativeDirectory: str, typeOfData: TypeOfData, beforeTransformation: bool = False) -> Dict[int, np.ndarray]:
         """
         Method to load the data from the files with the standarized format.
-        At the moment it only loads the data if is of type: FullLogNeg, HighestOneByOne, OddVSEven, OccupationNumber.
+        At the moment it only loads the data if is of type: FullLogNeg, HighestOneByOne, OddVSEven, OccupationNumber, Difference.
 
         WARNING: At the moment it only loads the data for the last instant of the transformation matrix. It may happen that
         last time a simulation was run with all the same definitions (initialState, instant, number of states, etc) but with different parameters.
@@ -517,12 +539,9 @@ class LogNegManager:
         """
         data = dict()
 
-        
         filesNames = self.getFileName(dataRelativeDirectory, typeOfData, date="", beforeTransformation=beforeTransformation)   
 
-
         allFiles = [f"./{dataRelativeDirectory}{file}" for file in os.listdir(f"./{dataRelativeDirectory}")]
-
 
         matchingFiles = [file for file in allFiles if any(re.search(pattern, file) for pattern in filesNames)]
         matchingFiles.sort(reverse=True)
@@ -536,27 +555,446 @@ class LogNegManager:
             if typeOfData == TypeOfData.OneByOneForAGivenMode:
                 return dict()
                 
-            elif self.arrayParameters is not None:
-                arrayParameter = dataFile[0]
-                if arrayParameter != self.arrayParameters[index]:
-                    print("WARNING: Array parameter not found in the array parameters used to generate the data for {}".format(typeOfData))
-                    return dict()   
-                data[index+1] = dataFile[1:]
+            elif typeOfData == TypeOfData.HighestOneByOne:
+                data[index + 1] = np.zeros((2, self.MODES))
+                data[index + 1][0] = dataFile[0, :]
+                data[index + 1][1] = dataFile[1, :]
             else:
-                data[index+1] = dataFile
-            
+                if self.arrayParameters is not None:
+                    arrayParameter = dataFile[0]
+                    if arrayParameter != self.arrayParameters[index]:
+                        print("WARNING: Array parameter not found in the array parameters used to generate the data for {}".format(typeOfData))
+                        return dict()   
+                    data[index+1] = dataFile[1:]
+                else:
+                    data[index+1] = dataFile
+                
         return data
         
 
-    def checkIfDataExists(self, dataRelativeDirectory: str, typeOfData: TypeOfData, exactFiles: List = [], beforeTransformation: bool = False) -> bool:
+    def checkIfDataExists(self, dataRelativeDirectory: str, typeOfData: TypeOfData, beforeTransformation: bool = False) -> bool:
         """
         Checks if the data for the given parameters exists in the directory.
         At the moment is not very efficient as it loads all the data and then checks if it is empty.
         """
         
-        dataLoaded = self.loadData(dataRelativeDirectory, typeOfData, exactFiles, beforeTransformation=beforeTransformation)
-        if len(dataLoaded) == 0:
-            return False
-        else:  
-            return True
+        dataLoaded = self.loadData(dataRelativeDirectory, typeOfData, beforeTransformation=beforeTransformation)
+        return len(dataLoaded) > 0
 
+
+    def performComputations(self, listOfWantedComputations: List[TypeOfData], plotsDataDirectory: str, tryToLoad: bool = True, specialModes: List[int] = []):
+        logNegArray = None
+        highestOneToOneValue = None
+        highestOneToOnePartner = None
+        occupationNumber = None
+        logNegEvenVsOdd = None
+        oneToOneGivenModes = None
+        differenceArray = None
+
+        results = {
+            "logNegArray": {"data": None, "saveData": True},
+            "highestOneToOneValue": {"data": None, "saveData": True},
+            "highestOneToOnePartner": {"data": None, "saveData": True},
+            "occupationNumber": {"data": None, "saveData": True},
+            "logNegEvenVsOdd": {"data": None, "saveData": True},
+            "oneToOneGivenModes": {"data": None, "saveData": False}, # Set to False as loadData is not implemented and the computation is carried always
+            "logNegDifference": {"data": None, "saveData": True},
+        }
+
+        for computation in listOfWantedComputations:
+            loadData = tryToLoad and self.checkIfDataExists(plotsDataDirectory, computation)
+
+            if loadData:
+                print("Loading data for: ", computation.value)
+
+                if computation == TypeOfData.FullLogNeg:
+                    results["logNegArray"]["data"] = self.loadData(plotsDataDirectory, computation)
+                    results["logNegArray"]["saveData"] = False
+
+                elif computation == TypeOfData.HighestOneByOne:
+                    oneToOneData = self.loadData(plotsDataDirectory, computation)
+                    results["highestOneToOneValue"]["data"] = oneToOneData[1][0]
+                    results["highestOneToOnePartner"]["data"] = oneToOneData[1][1]
+                    results["highestOneToOneValue"]["saveData"] = False
+                    results["highestOneToOnePartner"]["saveData"] = False
+
+                elif computation == TypeOfData.OccupationNumber:
+                    results["occupationNumber"]["data"] = self.loadData(plotsDataDirectory, computation)
+                    results["occupationNumber"]["saveData"] = False
+
+                elif computation == TypeOfData.OddVSEven:
+                    results["logNegEvenVsOdd"]["data"] = self.loadData(plotsDataDirectory, computation)
+                    results["logNegEvenVsOdd"]["saveData"] = False
+
+                elif computation == TypeOfData.Difference:
+                    results["logNegDifference"]["data"] = self.loadData(plotsDataDirectory, computation)
+                    results["logNegDifference"]["saveData"] = False
+
+            else:
+                print("Computing data for: ", computation.value)
+
+                if computation == TypeOfData.FullLogNeg:
+                    results["logNegArray"]["data"] = self.computeFullLogNeg()
+
+                elif computation == TypeOfData.HighestOneByOne:
+                    if self.plottingInfo["NumberOfStates"] == 1:
+                        results["highestOneToOneValue"]["data"], results["highestOneToOnePartner"]["data"] = self.computeHighestOneByOne()
+                    else:
+                        print("Highest one by one not computed for this initial state (more than one initial state)")
+
+                elif computation == TypeOfData.OccupationNumber:
+                    results["occupationNumber"]["data"] = self.computeOccupationNumber()
+
+                elif computation == TypeOfData.OddVSEven:
+                    results["logNegEvenVsOdd"]["data"] = self.computeOddVSEven()
+
+                elif computation == TypeOfData.Difference:
+                    results["logNegDifference"]["data"] = self.computeLogNegDifference(results["logNegArray"]["data"])
+
+                elif computation == TypeOfData.OneByOneForAGivenMode:
+                    if self.plottingInfo["NumberOfStates"] == 1:
+                        oneToOneGivenModes = dict()
+                        oneToOneGivenModes[1] = np.zeros((len(specialModes), self.MODES))
+                        for index, mode in enumerate(specialModes):
+                            oneToOneGivenModes[1][index] = self.computeOneByOneForAGivenMode(mode)[1]
+                        results["oneToOneGivenModes"]["data"] = oneToOneGivenModes
+                    else:
+                        print("For more than one initial state OneByOne for a list of modes is not computed")
+
+        return results
+    
+    def plotFullLogNeg(self, logNegArray, plotsDirectory, plotsDataDirectory, saveFig=True, saveData=True):
+        if logNegArray is not None:
+            pl.figure()
+
+            for index in range(self.plottingInfo["NumberOfStates"]):
+                label = r"$LN${}${:.2f}{}$".format(self.plottingInfo["MagnitudeName"],
+                                                   self.plottingInfo["Magnitude"][index],
+                                                   self.plottingInfo["MagnitudeUnits"]) if self.plottingInfo["Magnitude"][index] != "" else None
+                pl.loglog(self.kArray[:], logNegArray[index+1][:], label=label, alpha=0.5, marker='.', markersize=8, linewidth=0.2)
+
+            y_values = np.concatenate([logNegArray[index+1][:] for index in range(self.plottingInfo["NumberOfStates"])])
+            y_min = np.min(y_values)
+            y_max = np.max(y_values)
+            
+            # Asegurarse de que y_min y y_max sean válidos
+            if y_min <= 0:
+                y_min = 1e-8
+            else:
+                y_min = 10**np.floor(np.log10(y_min))
+            
+            if y_max <= 0:
+                y_max = 1
+            else:
+                y_max = 10**np.ceil(np.log10(y_max))
+
+            x_max = (2 if self.MODES > 10**np.floor(np.log10(self.MODES)) else 1) * 10**np.floor(np.log10(self.MODES))
+
+            pl.xlim(1, x_max)
+            pl.ylim(y_min, y_max)
+            pl.xlabel(r"$I$", fontsize=20)
+            pl.ylabel(r"$LogNeg(I)$", fontsize=20)
+            pl.grid(linestyle="--", color='0.9')
+            if label is not None:
+                pl.legend(loc='best', borderaxespad=0., fontsize=16)
+            mpl.rc('xtick', labelsize=16)
+            mpl.rc('ytick', labelsize=16)
+            pl.tight_layout()
+
+            date = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+
+            if saveFig:
+                figureName = self.getFigureName(plotsDirectory, TypeOfData.FullLogNeg, date)
+                pl.savefig(figureName)
+
+            if saveData:
+                self.saveData(plotsDataDirectory, logNegArray, TypeOfData.FullLogNeg, date)
+
+    def plotHighestOneByOne(self, highestOneToOneValue, highestOneToOnePartner, logNegArray, plotsDirectory, plotsDataDirectory, saveFig=True, saveData=True):
+        if highestOneToOneValue is not None and highestOneToOnePartner is not None:
+            if logNegArray is None:
+                logNegArray = self.computeFullLogNeg()
+            pl.figure()
+            pl.loglog(self.kArray[:], highestOneToOneValue, label=r"Strongest one to one $LN$", alpha=0.5, marker='.', markersize=8, linewidth=0.2)
+            if logNegArray is not None:
+                pl.loglog(self.kArray[:], logNegArray[1][:], label=r"Full $LN$", alpha=0.5, marker='.', markersize=8, linewidth=0.2)
+
+            y_values_highest = np.concatenate((highestOneToOneValue, logNegArray[1][:] if logNegArray is not None else []))
+            y_values_Full = np.concatenate([logNegArray[index+1][:] for index in range(self.plottingInfo["NumberOfStates"])])
+            y_values = np.concatenate([y_values_highest, y_values_Full])
+            y_min = np.min(y_values)
+            y_max = np.max(y_values)
+            
+            # Asegurarse de que y_min y y_max sean válidos
+            if y_min <= 0:
+                y_min = 1e-8
+            else:
+                y_min = 10**np.floor(np.log10(y_min))
+            
+            if y_max <= 0:
+                y_max = 1
+            else:
+                y_max = 10**np.ceil(np.log10(y_max))
+
+            x_max = (2 if self.MODES > 10**np.floor(np.log10(self.MODES)) else 1) * 10**np.floor(np.log10(self.MODES))
+
+            pl.xlim(1, x_max)
+            pl.ylim(y_min, y_max)
+            pl.xlabel(r"$I$", fontsize=20)
+            pl.ylabel(r"$LogNeg(I)$", fontsize=20)
+            pl.grid(linestyle="--", color='0.9')
+            pl.legend(bbox_to_anchor=(0.60, 0.95), loc=2, borderaxespad=0., fontsize=16)
+            mpl.rc('xtick', labelsize=16)
+            mpl.rc('ytick', labelsize=16)
+            pl.tight_layout()
+
+            if len(self.kArray) == len(highestOneToOneValue) == len(highestOneToOnePartner):
+                for i, txt in enumerate(highestOneToOnePartner):
+                    pl.annotate(txt+1, (self.kArray[i], highestOneToOneValue[i]), textcoords="offset points", xytext=(0, 10), ha='center')
+            else:
+                raise ValueError("The lengths of k_array, maxValues, and maxPartners do not match.")
+
+            date = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+
+            if saveFig:
+                figureName = self.getFigureName(plotsDirectory, TypeOfData.HighestOneByOne, date)
+                pl.savefig(figureName)
+
+            if saveData:
+                oneToOneDict = {1: np.array([highestOneToOneValue, highestOneToOnePartner])}
+                self.saveData(plotsDataDirectory, oneToOneDict, TypeOfData.HighestOneByOne, date)
+
+    def plotOccupationNumber(self, occupationNumber, plotsDirectory, plotsDataDirectory, saveFig=True, saveData=False):
+        if occupationNumber is not None:
+            pl.figure()
+            for index in range(self.plottingInfo["NumberOfStates"]):
+                label = r"$n${}${:.2f}{}$".format(self.plottingInfo["MagnitudeName"], 
+                                                  self.plottingInfo["Magnitude"][index], 
+                                                  self.plottingInfo["MagnitudeUnits"]) if self.plottingInfo["Magnitude"][index] != "" else None
+                pl.loglog(self.kArray[:], occupationNumber[index+1], label=label, alpha=0.5, marker='.', markersize=8, linewidth=0.2)
+
+            y_values = np.concatenate([occupationNumber[index+1] for index in range(self.plottingInfo["NumberOfStates"])])
+            y_min = np.min(y_values)
+            y_max = np.max(y_values)
+            
+            # Asegurarse de que y_min y y_max sean válidos
+            if y_min <= 0:
+                y_min = 1e-8
+            else:
+                y_min = 10**np.floor(np.log10(y_min))
+            
+            if y_max <= 0:
+                y_max = 1
+            else:
+                y_max = 10**np.ceil(np.log10(y_max))
+
+            x_max = (2 if self.MODES > 10**np.floor(np.log10(self.MODES)) else 1) * 10**np.floor(np.log10(self.MODES))
+
+            pl.xlim(1, x_max)
+            pl.ylim(y_min, y_max)
+            pl.xlabel(r"$I$", fontsize=20)
+            pl.ylabel(r"$n$", fontsize=20)
+            pl.grid(linestyle="--", color='0.9')
+            if label is not None:
+                pl.legend(loc='best', borderaxespad=0., fontsize=16)
+            mpl.rc('xtick', labelsize=16)
+            mpl.rc('ytick', labelsize=16)
+            pl.tight_layout()
+            date = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+            if saveFig:
+                figureName = self.getFigureName(plotsDirectory, TypeOfData.OccupationNumber, date)
+                pl.savefig(figureName)
+
+            if saveData:
+                self.saveData(plotsDataDirectory, occupationNumber, TypeOfData.OccupationNumber, date)
+
+    def plotOddVsEven(self, logNegEvenVsOdd, logNegArray, plotsDirectory, plotsDataDirectory, saveFig=True, saveData=True):
+        if logNegEvenVsOdd is not None:
+            if logNegArray is None:
+                logNegArray = self.computeFullLogNeg()
+            pl.figure()
+
+            for index in range(self.plottingInfo["NumberOfStates"]):
+                label = r"$LN$ Odd vs Even{}${:.2f}{}$".format(self.plottingInfo["MagnitudeName"],
+                                                               self.plottingInfo["Magnitude"][index],
+                                                               self.plottingInfo["MagnitudeUnits"]) if self.plottingInfo["Magnitude"][index] != "" else "$LN$ Odd vs Even"
+                pl.loglog(self.kArray[:], logNegEvenVsOdd[index+1][:], label=label, alpha=0.5, marker='.', markersize=8, linewidth=0.2)
+
+            if logNegArray is not None and self.plottingInfo["NumberOfStates"] == 1:
+                pl.loglog(self.kArray[:], logNegArray[1][:], label=r"Full $LN$", alpha=0.5, marker='.', markersize=8, linewidth=0.2)
+
+            y_values_EvenOdd = np.concatenate([logNegEvenVsOdd[index+1][:] for index in range(self.plottingInfo["NumberOfStates"])])
+            y_values_Full = np.concatenate([logNegArray[index+1][:] for index in range(self.plottingInfo["NumberOfStates"])])
+            y_values = np.concatenate([y_values_EvenOdd, y_values_Full])
+            y_min = np.min(y_values)
+            y_max = np.max(y_values)
+            
+            # Asegurarse de que y_min y y_max sean válidos
+            if y_min <= 0:
+                y_min = 1e-8
+            else:
+                y_min = 10**np.floor(np.log10(y_min))
+            
+            if y_max <= 0:
+                y_max = 1
+            else:
+                y_max = 10**np.ceil(np.log10(y_max))
+
+            x_max = (2 if self.MODES > 10**np.floor(np.log10(self.MODES)) else 1) * 10**np.floor(np.log10(self.MODES))
+
+            pl.xlim(1, x_max)
+            pl.ylim(y_min, y_max)
+            pl.xlabel(r"$I$", fontsize=20)
+            pl.ylabel(r"$LogNeg(I)$", fontsize=20)
+            pl.grid(linestyle="--", color='0.9')
+            if label is not None:
+                pl.legend(loc='best', borderaxespad=0., fontsize=16)
+            mpl.rc('xtick', labelsize=16)
+            mpl.rc('ytick', labelsize=16)
+            pl.tight_layout()
+
+            date = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+
+            if saveFig:
+                figureName = self.getFigureName(plotsDirectory, TypeOfData.OddVSEven, date)
+                pl.savefig(figureName)
+
+            if saveData:
+                self.saveData(plotsDataDirectory, logNegEvenVsOdd, TypeOfData.OddVSEven, date)
+
+
+    def plotOneByOneForGivenMode(self, oneToOneGivenModes, specialModes, plotsDirectory, plotsDataDirectory, saveFig=True, saveData=True):
+        if oneToOneGivenModes is not None:
+            pl.figure()
+
+            for index, mode in enumerate(specialModes):
+                label = r"$LN$ {} vs each other".format(mode)
+                pl.loglog(self.kArray[:], oneToOneGivenModes[1][index][:], label=label, alpha=0.5, marker='.', markersize=8, linewidth=0.2)
+
+            y_values = np.concatenate([oneToOneGivenModes[index+1][:] for index in range(self.plottingInfo["NumberOfStates"])])
+            y_min = np.min(y_values)
+            y_max = np.max(y_values)
+            
+            # Asegurarse de que y_min y y_max sean válidos
+            if y_min <= 0:
+                y_min = 1e-8
+            else:
+                y_min = 10**np.floor(np.log10(y_min))
+            
+            if y_max <= 0:
+                y_max = 1
+            else:
+                y_max = 10**np.ceil(np.log10(y_max))
+
+            x_max = (2 if self.MODES > 10**np.floor(np.log10(self.MODES)) else 1) * 10**np.floor(np.log10(self.MODES))
+
+            pl.xlim(1, x_max)
+            pl.ylim(y_min, y_max)
+            pl.xlabel(r"$I$", fontsize=20)
+            pl.ylabel(r"$LogNeg(I)$", fontsize=20)
+            pl.grid(linestyle="--", color='0.9')
+            if label is not None:
+                pl.legend(loc='best', borderaxespad=0., fontsize=16)
+            mpl.rc('xtick', labelsize=16)
+            mpl.rc('ytick', labelsize=16)
+            pl.tight_layout()
+
+            date = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+
+            if saveFig:
+                figureName = self.getFigureName(plotsDirectory, TypeOfData.OneByOneForAGivenMode, date)
+                pl.savefig(figureName)
+
+            if saveData:
+                fileName = self.getFileName(plotsDataDirectory, TypeOfData.OneByOneForAGivenMode, date)[0]  # Asegurarse de que fileName sea una cadena de texto
+                dataToSave = np.zeros((self.MODES+2, len(specialModes)))
+                for index, mode in enumerate(specialModes):
+                    arrayParameter = 0
+                    if self.arrayParameters is not None:
+                        arrayParameter = self.arrayParameters[0]
+                    dataToSave[0, index] = arrayParameter
+                    dataToSave[1, index] = mode
+                    dataToSave[2:, index] = oneToOneGivenModes[1][index]
+
+                # Asegurar que el directorio existe
+                os.makedirs(os.path.dirname(fileName), exist_ok=True)
+
+                for index, mode in enumerate(specialModes):
+                    np.savetxt("{}_plotNumber_{}.txt".format(fileName, index+1), dataToSave[:, index])
+
+
+    def plotLogNegDifference(self, differenceArray, plotsDirectory, plotsDataDirectory, saveFig=True, saveData=True):
+        if differenceArray is not None:
+            pl.figure()
+
+            for index in range(self.plottingInfo["NumberOfStates"]):
+                label = r"$LNAfter-LNBefore${}${:.2f}{}$".format(self.plottingInfo["MagnitudeName"],
+                                                                self.plottingInfo["Magnitude"][index],
+                                                                self.plottingInfo["MagnitudeUnits"]) if self.plottingInfo["Magnitude"][index] != "" else None
+                pl.loglog(self.kArray[:], differenceArray[index+1][:], label=label, alpha=0.5, marker='.', markersize=8, linewidth=0.2)
+
+            y_values = np.concatenate([differenceArray[index+1][:] for index in range(self.plottingInfo["NumberOfStates"])])
+            y_min = np.min(y_values)
+            y_max = np.max(y_values)
+            
+            # Asegurarse de que y_min y y_max sean válidos
+            if y_min <= 0:
+                y_min = 1e-8
+            else:
+                y_min = 10**np.floor(np.log10(y_min))
+            
+            if y_max <= 0:
+                y_max = 1
+            else:
+                y_max = 10**np.ceil(np.log10(y_max))
+
+            x_max = (2 if self.MODES > 10**np.floor(np.log10(self.MODES)) else 1) * 10**np.floor(np.log10(self.MODES))
+
+            pl.xlim(1, x_max)
+            pl.ylim(y_min, y_max)
+            pl.xlabel(r"$I$", fontsize=20)
+            pl.ylabel(r"$LogNeg(I)$", fontsize=20)
+            pl.grid(linestyle="--", color='0.9')
+            if label is not None:
+                pl.legend(loc='best', borderaxespad=0., fontsize=16)
+            mpl.rc('xtick', labelsize=16)
+            mpl.rc('ytick', labelsize=16)
+            pl.tight_layout()
+
+            date = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+
+            if saveFig:
+                figureName = self.getFigureName(plotsDirectory, TypeOfData.Difference, date)
+                pl.savefig(figureName)
+
+            if saveData:
+                self.saveData(plotsDataDirectory, differenceArray, TypeOfData.Difference, date)
+
+
+    def generatePlots(self, results, plotsDirectory, plotsDataDirectory, specialModes, listOfWantedComputations, saveFig=True):
+        logNegArray = results.get("logNegArray")["data"]
+        highestOneToOneValue = results.get("highestOneToOneValue")["data"]
+        highestOneToOnePartner = results.get("highestOneToOnePartner")["data"]
+        occupationNumber = results.get("occupationNumber")["data"]
+        logNegEvenVsOdd = results.get("logNegEvenVsOdd")["data"]
+        oneToOneGivenModes = results.get("oneToOneGivenModes")["data"]
+        differenceArray = results.get("logNegDifference")["data"]
+
+        # Generar y guardar las gráficas según las computaciones solicitadas
+        if TypeOfData.FullLogNeg in listOfWantedComputations and logNegArray is not None:
+            self.plotFullLogNeg(logNegArray, plotsDirectory, plotsDataDirectory, saveFig=saveFig, saveData=results.get("logNegArray")["saveData"])
+
+        if TypeOfData.OccupationNumber in listOfWantedComputations and occupationNumber is not None:
+            self.plotOccupationNumber(occupationNumber, plotsDirectory, plotsDataDirectory, saveFig=saveFig, saveData=results.get("occupationNumber")["saveData"])
+
+        if TypeOfData.OddVSEven in listOfWantedComputations and logNegEvenVsOdd is not None:
+            self.plotOddVsEven(logNegEvenVsOdd, logNegArray, plotsDirectory, plotsDataDirectory, saveFig=saveFig, saveData=results.get("logNegEvenVsOdd")["saveData"])
+
+        if TypeOfData.OneByOneForAGivenMode in listOfWantedComputations and oneToOneGivenModes is not None:
+            self.plotOneByOneForGivenMode(oneToOneGivenModes, specialModes, plotsDirectory, plotsDataDirectory, saveFig=saveFig, saveData=results.get("oneToOneGivenModes")["saveData"])
+
+        if TypeOfData.Difference in listOfWantedComputations and differenceArray is not None:
+            self.plotLogNegDifference(differenceArray, plotsDirectory, plotsDataDirectory, saveFig=saveFig, saveData=results.get("logNegDifference")["saveData"])
+
+        if TypeOfData.HighestOneByOne in listOfWantedComputations and highestOneToOnePartner is not None and highestOneToOneValue is not None:
+            self.plotHighestOneByOne(highestOneToOneValue, highestOneToOnePartner, logNegArray, plotsDirectory, plotsDataDirectory, saveFig=saveFig, saveData=results.get("highestOneToOneValue")["saveData"])
