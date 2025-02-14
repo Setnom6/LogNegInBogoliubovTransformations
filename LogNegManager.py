@@ -20,7 +20,7 @@ class TypeOfData(Enum):
     OneByOneForAGivenMode = "oneByOneForAGivenMode"
     OddVSEven = "oddVSEven"
     OccupationNumber = "occupationNumber"
-    Difference = "differenceArray"
+    LogNegDifference = "logNegDifference"
 
 
 class LogNegManager:
@@ -411,12 +411,24 @@ class LogNegManager:
         return occupationNumber
     
     def computeLogNegDifference(self, logNegArray):
-        # Obtener el LogNeg antes de la transformación
+        """
+        Computes the difference in the logarithmic negativity between the state after the transformation and the state before the transformation.
+
+        Parameters:
+        logNegArray: Dict[int, np.ndarray]
+            Dictionary with the logarithmic negativity for each state. (indexes 1, 2, ...)
+            Each element of the dictionary is an array with the logarithmic negativity for each mode.
+            (state i, log neg of mode j -> logNegArray[i][j])
+        
+        Returns:
+        Dict[int, np.ndarray]
+            Dictionary with the difference in the logarithmic negativity for each state. (indexes 1, 2, ...)
+            Each element of the dictionary is an array with the difference in the logarithmic negativity for each mode.
+            (state i, difference in log neg of mode j -> differenceArray[i][j])
+        """
         if logNegArray is None:
             logNegArray = self.computeFullLogNeg()
         logNegArrayBefore = self.computeFullLogNeg(inState=True)
-
-        # Calcular la diferencia entre los dos LogNegs
         differenceArray = dict()
         for index in range(1, self.plottingInfo["NumberOfStates"] + 1):
             differenceArray[index] = np.zeros(self.MODES)
@@ -583,22 +595,14 @@ class LogNegManager:
 
 
     def performComputations(self, listOfWantedComputations: List[TypeOfData], plotsDataDirectory: str, tryToLoad: bool = True, specialModes: List[int] = []):
-        logNegArray = None
-        highestOneToOneValue = None
-        highestOneToOnePartner = None
-        occupationNumber = None
-        logNegEvenVsOdd = None
-        oneToOneGivenModes = None
-        differenceArray = None
-
         results = {
-            "logNegArray": {"data": None, "saveData": True},
-            "highestOneToOneValue": {"data": None, "saveData": True},
-            "highestOneToOnePartner": {"data": None, "saveData": True},
-            "occupationNumber": {"data": None, "saveData": True},
-            "logNegEvenVsOdd": {"data": None, "saveData": True},
-            "oneToOneGivenModes": {"data": None, "saveData": False}, # Set to False as loadData is not implemented and the computation is carried always
-            "logNegDifference": {"data": None, "saveData": True},
+            "logNegArray": None,
+            "highestOneToOneValue": None,
+            "highestOneToOnePartner": None,
+            "occupationNumber": None,
+            "logNegEvenVsOdd": None,
+            "oneToOneGivenModes": None, 
+            "logNegDifference": None,
         }
 
         for computation in listOfWantedComputations:
@@ -608,48 +612,49 @@ class LogNegManager:
                 print("Loading data for: ", computation.value)
 
                 if computation == TypeOfData.FullLogNeg:
-                    results["logNegArray"]["data"] = self.loadData(plotsDataDirectory, computation)
-                    results["logNegArray"]["saveData"] = False
+                    results["logNegArray"] = self.loadData(plotsDataDirectory, computation)
 
                 elif computation == TypeOfData.HighestOneByOne:
                     oneToOneData = self.loadData(plotsDataDirectory, computation)
-                    results["highestOneToOneValue"]["data"] = oneToOneData[1][0]
-                    results["highestOneToOnePartner"]["data"] = oneToOneData[1][1]
-                    results["highestOneToOneValue"]["saveData"] = False
-                    results["highestOneToOnePartner"]["saveData"] = False
+                    results["highestOneToOneValue"] = oneToOneData[1][0]
+                    results["highestOneToOnePartner"] = oneToOneData[1][1]
 
                 elif computation == TypeOfData.OccupationNumber:
-                    results["occupationNumber"]["data"] = self.loadData(plotsDataDirectory, computation)
-                    results["occupationNumber"]["saveData"] = False
+                    results["occupationNumber"] = self.loadData(plotsDataDirectory, computation)
 
                 elif computation == TypeOfData.OddVSEven:
-                    results["logNegEvenVsOdd"]["data"] = self.loadData(plotsDataDirectory, computation)
-                    results["logNegEvenVsOdd"]["saveData"] = False
+                    results["logNegEvenVsOdd"] = self.loadData(plotsDataDirectory, computation)
 
-                elif computation == TypeOfData.Difference:
-                    results["logNegDifference"]["data"] = self.loadData(plotsDataDirectory, computation)
-                    results["logNegDifference"]["saveData"] = False
+                elif computation == TypeOfData.LogNegDifference:
+                    results["logNegDifference"] = self.loadData(plotsDataDirectory, computation)
 
             else:
+                date = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
                 print("Computing data for: ", computation.value)
 
                 if computation == TypeOfData.FullLogNeg:
-                    results["logNegArray"]["data"] = self.computeFullLogNeg()
+                    results["logNegArray"] = self.computeFullLogNeg()
+                    self.saveData(plotsDataDirectory, results["logNegArray"], computation, date)
 
                 elif computation == TypeOfData.HighestOneByOne:
                     if self.plottingInfo["NumberOfStates"] == 1:
-                        results["highestOneToOneValue"]["data"], results["highestOneToOnePartner"]["data"] = self.computeHighestOneByOne()
+                        results["highestOneToOneValue"], results["highestOneToOnePartner"] = self.computeHighestOneByOne()
+                        oneToOneDict = {1: np.array([results["highestOneToOneValue"], results["highestOneToOnePartner"]])}
+                        self.saveData(plotsDataDirectory, oneToOneDict, computation, date)
                     else:
                         print("Highest one by one not computed for this initial state (more than one initial state)")
 
                 elif computation == TypeOfData.OccupationNumber:
-                    results["occupationNumber"]["data"] = self.computeOccupationNumber()
+                    results["occupationNumber"] = self.computeOccupationNumber()
+                    self.saveData(plotsDataDirectory, results["occupationNumber"], TypeOfData.OccupationNumber, date)
 
                 elif computation == TypeOfData.OddVSEven:
-                    results["logNegEvenVsOdd"]["data"] = self.computeOddVSEven()
+                    results["logNegEvenVsOdd"] = self.computeOddVSEven()
+                    self.saveData(plotsDataDirectory, results["logNegEvenVsOdd"], TypeOfData.OddVSEven, date)
 
-                elif computation == TypeOfData.Difference:
-                    results["logNegDifference"]["data"] = self.computeLogNegDifference(results["logNegArray"]["data"])
+                elif computation == TypeOfData.LogNegDifference:
+                    results["logNegDifference"] = self.computeLogNegDifference(results["logNegArray"])
+                    self.saveData(plotsDataDirectory, results["logNegDifference"], TypeOfData.LogNegDifference, date)
 
                 elif computation == TypeOfData.OneByOneForAGivenMode:
                     if self.plottingInfo["NumberOfStates"] == 1:
@@ -657,13 +662,14 @@ class LogNegManager:
                         oneToOneGivenModes[1] = np.zeros((len(specialModes), self.MODES))
                         for index, mode in enumerate(specialModes):
                             oneToOneGivenModes[1][index] = self.computeOneByOneForAGivenMode(mode)[1]
-                        results["oneToOneGivenModes"]["data"] = oneToOneGivenModes
+                        results["oneToOneGivenModes"] = oneToOneGivenModes
                     else:
                         print("For more than one initial state OneByOne for a list of modes is not computed")
 
+        
         return results
     
-    def plotFullLogNeg(self, logNegArray, plotsDirectory, plotsDataDirectory, saveFig=True, saveData=True):
+    def plotFullLogNeg(self, logNegArray, plotsDirectory, saveFig=True):
         if logNegArray is not None:
             pl.figure()
 
@@ -677,7 +683,6 @@ class LogNegManager:
             y_min = np.min(y_values)
             y_max = np.max(y_values)
             
-            # Asegurarse de que y_min y y_max sean válidos
             if y_min <= 0:
                 y_min = 1e-8
             else:
@@ -707,10 +712,8 @@ class LogNegManager:
                 figureName = self.getFigureName(plotsDirectory, TypeOfData.FullLogNeg, date)
                 pl.savefig(figureName)
 
-            if saveData:
-                self.saveData(plotsDataDirectory, logNegArray, TypeOfData.FullLogNeg, date)
 
-    def plotHighestOneByOne(self, highestOneToOneValue, highestOneToOnePartner, logNegArray, plotsDirectory, plotsDataDirectory, saveFig=True, saveData=True):
+    def plotHighestOneByOne(self, highestOneToOneValue, highestOneToOnePartner, logNegArray, plotsDirectory, saveFig=True):
         if highestOneToOneValue is not None and highestOneToOnePartner is not None:
             if logNegArray is None:
                 logNegArray = self.computeFullLogNeg()
@@ -725,7 +728,6 @@ class LogNegManager:
             y_min = np.min(y_values)
             y_max = np.max(y_values)
             
-            # Asegurarse de que y_min y y_max sean válidos
             if y_min <= 0:
                 y_min = 1e-8
             else:
@@ -760,11 +762,8 @@ class LogNegManager:
                 figureName = self.getFigureName(plotsDirectory, TypeOfData.HighestOneByOne, date)
                 pl.savefig(figureName)
 
-            if saveData:
-                oneToOneDict = {1: np.array([highestOneToOneValue, highestOneToOnePartner])}
-                self.saveData(plotsDataDirectory, oneToOneDict, TypeOfData.HighestOneByOne, date)
-
-    def plotOccupationNumber(self, occupationNumber, plotsDirectory, plotsDataDirectory, saveFig=True, saveData=False):
+    
+    def plotOccupationNumber(self, occupationNumber, plotsDirectory, saveFig=True):
         if occupationNumber is not None:
             pl.figure()
             for index in range(self.plottingInfo["NumberOfStates"]):
@@ -776,8 +775,7 @@ class LogNegManager:
             y_values = np.concatenate([occupationNumber[index+1] for index in range(self.plottingInfo["NumberOfStates"])])
             y_min = np.min(y_values)
             y_max = np.max(y_values)
-            
-            # Asegurarse de que y_min y y_max sean válidos
+
             if y_min <= 0:
                 y_min = 1e-8
             else:
@@ -805,10 +803,8 @@ class LogNegManager:
                 figureName = self.getFigureName(plotsDirectory, TypeOfData.OccupationNumber, date)
                 pl.savefig(figureName)
 
-            if saveData:
-                self.saveData(plotsDataDirectory, occupationNumber, TypeOfData.OccupationNumber, date)
 
-    def plotOddVsEven(self, logNegEvenVsOdd, logNegArray, plotsDirectory, plotsDataDirectory, saveFig=True, saveData=True):
+    def plotOddVsEven(self, logNegEvenVsOdd, logNegArray, plotsDirectory, saveFig=True):
         if logNegEvenVsOdd is not None:
             if logNegArray is None:
                 logNegArray = self.computeFullLogNeg()
@@ -829,7 +825,6 @@ class LogNegManager:
             y_min = np.min(y_values)
             y_max = np.max(y_values)
             
-            # Asegurarse de que y_min y y_max sean válidos
             if y_min <= 0:
                 y_min = 1e-8
             else:
@@ -859,9 +854,6 @@ class LogNegManager:
                 figureName = self.getFigureName(plotsDirectory, TypeOfData.OddVSEven, date)
                 pl.savefig(figureName)
 
-            if saveData:
-                self.saveData(plotsDataDirectory, logNegEvenVsOdd, TypeOfData.OddVSEven, date)
-
 
     def plotOneByOneForGivenMode(self, oneToOneGivenModes, specialModes, plotsDirectory, plotsDataDirectory, saveFig=True, saveData=True):
         if oneToOneGivenModes is not None:
@@ -875,7 +867,6 @@ class LogNegManager:
             y_min = np.min(y_values)
             y_max = np.max(y_values)
             
-            # Asegurarse de que y_min y y_max sean válidos
             if y_min <= 0:
                 y_min = 1e-8
             else:
@@ -916,14 +907,13 @@ class LogNegManager:
                     dataToSave[1, index] = mode
                     dataToSave[2:, index] = oneToOneGivenModes[1][index]
 
-                # Asegurar que el directorio existe
                 os.makedirs(os.path.dirname(fileName), exist_ok=True)
 
                 for index, mode in enumerate(specialModes):
                     np.savetxt("{}_plotNumber_{}.txt".format(fileName, index+1), dataToSave[:, index])
 
 
-    def plotLogNegDifference(self, differenceArray, plotsDirectory, plotsDataDirectory, saveFig=True, saveData=True):
+    def plotLogNegDifference(self, differenceArray, plotsDirectory, saveFig=True):
         if differenceArray is not None:
             pl.figure()
 
@@ -937,7 +927,6 @@ class LogNegManager:
             y_min = np.min(y_values)
             y_max = np.max(y_values)
             
-            # Asegurarse de que y_min y y_max sean válidos
             if y_min <= 0:
                 y_min = 1e-8
             else:
@@ -964,37 +953,33 @@ class LogNegManager:
             date = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
 
             if saveFig:
-                figureName = self.getFigureName(plotsDirectory, TypeOfData.Difference, date)
+                figureName = self.getFigureName(plotsDirectory, TypeOfData.LogNegDifference, date)
                 pl.savefig(figureName)
-
-            if saveData:
-                self.saveData(plotsDataDirectory, differenceArray, TypeOfData.Difference, date)
 
 
     def generatePlots(self, results, plotsDirectory, plotsDataDirectory, specialModes, listOfWantedComputations, saveFig=True):
-        logNegArray = results.get("logNegArray")["data"]
-        highestOneToOneValue = results.get("highestOneToOneValue")["data"]
-        highestOneToOnePartner = results.get("highestOneToOnePartner")["data"]
-        occupationNumber = results.get("occupationNumber")["data"]
-        logNegEvenVsOdd = results.get("logNegEvenVsOdd")["data"]
-        oneToOneGivenModes = results.get("oneToOneGivenModes")["data"]
-        differenceArray = results.get("logNegDifference")["data"]
+        logNegArray = results.get("logNegArray")
+        highestOneToOneValue = results.get("highestOneToOneValue")
+        highestOneToOnePartner = results.get("highestOneToOnePartner")
+        occupationNumber = results.get("occupationNumber")
+        logNegEvenVsOdd = results.get("logNegEvenVsOdd")
+        oneToOneGivenModes = results.get("oneToOneGivenModes")
+        differenceArray = results.get("logNegDifference")
 
-        # Generar y guardar las gráficas según las computaciones solicitadas
         if TypeOfData.FullLogNeg in listOfWantedComputations and logNegArray is not None:
-            self.plotFullLogNeg(logNegArray, plotsDirectory, plotsDataDirectory, saveFig=saveFig, saveData=results.get("logNegArray")["saveData"])
+            self.plotFullLogNeg(logNegArray, plotsDirectory, saveFig=saveFig)
 
         if TypeOfData.OccupationNumber in listOfWantedComputations and occupationNumber is not None:
-            self.plotOccupationNumber(occupationNumber, plotsDirectory, plotsDataDirectory, saveFig=saveFig, saveData=results.get("occupationNumber")["saveData"])
+            self.plotOccupationNumber(occupationNumber, plotsDirectory, saveFig=saveFig)
 
         if TypeOfData.OddVSEven in listOfWantedComputations and logNegEvenVsOdd is not None:
-            self.plotOddVsEven(logNegEvenVsOdd, logNegArray, plotsDirectory, plotsDataDirectory, saveFig=saveFig, saveData=results.get("logNegEvenVsOdd")["saveData"])
+            self.plotOddVsEven(logNegEvenVsOdd, logNegArray, plotsDirectory, saveFig=saveFig)
 
         if TypeOfData.OneByOneForAGivenMode in listOfWantedComputations and oneToOneGivenModes is not None:
-            self.plotOneByOneForGivenMode(oneToOneGivenModes, specialModes, plotsDirectory, plotsDataDirectory, saveFig=saveFig, saveData=results.get("oneToOneGivenModes")["saveData"])
+            self.plotOneByOneForGivenMode(oneToOneGivenModes, specialModes, plotsDirectory, plotsDataDirectory, saveFig=saveFig, saveData=True)
 
-        if TypeOfData.Difference in listOfWantedComputations and differenceArray is not None:
-            self.plotLogNegDifference(differenceArray, plotsDirectory, plotsDataDirectory, saveFig=saveFig, saveData=results.get("logNegDifference")["saveData"])
+        if TypeOfData.LogNegDifference in listOfWantedComputations and differenceArray is not None:
+            self.plotLogNegDifference(differenceArray, plotsDirectory, saveFig=saveFig)
 
         if TypeOfData.HighestOneByOne in listOfWantedComputations and highestOneToOnePartner is not None and highestOneToOneValue is not None:
-            self.plotHighestOneByOne(highestOneToOneValue, highestOneToOnePartner, logNegArray, plotsDirectory, plotsDataDirectory, saveFig=saveFig, saveData=results.get("highestOneToOneValue")["saveData"])
+            self.plotHighestOneByOne(highestOneToOneValue, highestOneToOnePartner, logNegArray, plotsDirectory, saveFig=saveFig)

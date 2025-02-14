@@ -23,7 +23,7 @@ with open(config_file_path) as config_file:
 # Set default values for the inputs
 MODES = config.get("MODES", 128)
 instant = config.get("instant", 10)
-inStateType = InitialState[config.get("inStateType", "Thermal")]
+inStateType = InitialState[config.get("inStateType", "Vacuum")]
 arrayParameters = config.get("arrayParameters", [0.0])
 dataDirectory = config.get("dataDirectory", "./sims-128/")
 plotsDirectory = config.get("plotsDirectory", "./plots/128-1plt-plots/")
