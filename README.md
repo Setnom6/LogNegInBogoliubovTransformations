@@ -28,13 +28,6 @@ project-root/
 |  |--MatrixTransformationDataPlotsData/
 
 ```
-
-# Typical workflow
-
-The file 'exampleOfUse.ipynb' shows a typical workflow of the problem. One starts by defining an object of type 'LogNegManager' which will store the main attributes of the simulation, as the kind of initial states, the matrix transformation in terms of the Bogoliubov coefficients or the number of modes. 
-
-Then one can compute (or load if they were compute earlier) different kind of calculations using the Log Negativity trhough the methods predefined in the LogNegManager class.
-=======
 # Logarithmic Negativity Simulation
 
 This repository provides a simulation framework for computing logarithmic negativity in quantum systems with multiple modes. The simulation is configured using a JSON file and executed using the following command:
