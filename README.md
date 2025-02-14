@@ -89,14 +89,6 @@ The simulation is controlled by a configuration file in JSON format. Below is an
 - ```tryToLoad```: (bool) If true it looks for the last computations matching the type in ```plotsDataDirectory```.
 - ```saveFig```: (bool) If true, in addition of create the data, the simulation creates the figures of each simulation.
 
-# Requirements
-
-The repository uses a copy of ```qgt.py``` taken from https://github.com/Setnom6/Quantum-Gaussian-Information-Toolbox-v2.git (last copy taken on December 2024). Therefore the packages needed are
-
-- Numpy
-- Scipy
-- Matplotlib
-
 # Warnings
 
 - At the moment, LogNegManager is unable of load data from ```OneToOneForAGivenMode``` so if it is asked to show it it will always compute it.
