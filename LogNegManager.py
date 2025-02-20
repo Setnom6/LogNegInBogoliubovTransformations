@@ -671,7 +671,7 @@ class LogNegManager:
     
     def plotFullLogNeg(self, logNegArray, plotsDirectory, saveFig=True):
         if logNegArray is not None:
-            pl.figure()
+            pl.figure(figsize=(12, 6))
 
             for index in range(self.plottingInfo["NumberOfStates"]):
                 label = r"$LN${}${:.2f}{}$".format(self.plottingInfo["MagnitudeName"],
@@ -700,8 +700,9 @@ class LogNegManager:
             pl.xlabel(r"$I$", fontsize=20)
             pl.ylabel(r"$LogNeg(I)$", fontsize=20)
             pl.grid(linestyle="--", color='0.9')
+            legend = None
             if label is not None:
-                pl.legend(loc='best', borderaxespad=0., fontsize=16)
+                legend = pl.legend(loc='upper left', bbox_to_anchor=(1, 1), borderaxespad=0., fontsize=16)
             mpl.rc('xtick', labelsize=16)
             mpl.rc('ytick', labelsize=16)
             pl.tight_layout()
@@ -710,14 +711,16 @@ class LogNegManager:
 
             if saveFig:
                 figureName = self.getFigureName(plotsDirectory, TypeOfData.FullLogNeg, date)
-                pl.savefig(figureName)
-
+                if legend:
+                    pl.savefig(figureName, bbox_extra_artists=(legend,), bbox_inches='tight')
+                else:
+                    pl.savefig(figureName, bbox_inches='tight')
 
     def plotHighestOneByOne(self, highestOneToOneValue, highestOneToOnePartner, logNegArray, plotsDirectory, saveFig=True):
         if highestOneToOneValue is not None and highestOneToOnePartner is not None:
             if logNegArray is None:
                 logNegArray = self.computeFullLogNeg()
-            pl.figure()
+            pl.figure(figsize=(12, 6))
             pl.loglog(self.kArray[:], highestOneToOneValue, label=r"Strongest one to one $LN$", alpha=0.5, marker='.', markersize=8, linewidth=0.2)
             if logNegArray is not None:
                 pl.loglog(self.kArray[:], logNegArray[1][:], label=r"Full $LN$", alpha=0.5, marker='.', markersize=8, linewidth=0.2)
@@ -745,7 +748,7 @@ class LogNegManager:
             pl.xlabel(r"$I$", fontsize=20)
             pl.ylabel(r"$LogNeg(I)$", fontsize=20)
             pl.grid(linestyle="--", color='0.9')
-            pl.legend(bbox_to_anchor=(0.60, 0.95), loc=2, borderaxespad=0., fontsize=16)
+            legend  =pl.legend(loc='upper left', bbox_to_anchor=(1, 1), borderaxespad=0., fontsize=16)
             mpl.rc('xtick', labelsize=16)
             mpl.rc('ytick', labelsize=16)
             pl.tight_layout()
@@ -760,12 +763,15 @@ class LogNegManager:
 
             if saveFig:
                 figureName = self.getFigureName(plotsDirectory, TypeOfData.HighestOneByOne, date)
-                pl.savefig(figureName)
+                if legend:
+                    pl.savefig(figureName, bbox_extra_artists=(legend,), bbox_inches='tight')
+                else:
+                    pl.savefig(figureName, bbox_inches='tight')
 
     
     def plotOccupationNumber(self, occupationNumber, plotsDirectory, saveFig=True):
         if occupationNumber is not None:
-            pl.figure()
+            pl.figure(figsize=(12, 6))
             for index in range(self.plottingInfo["NumberOfStates"]):
                 label = r"$n${}${:.2f}{}$".format(self.plottingInfo["MagnitudeName"], 
                                                   self.plottingInfo["Magnitude"][index], 
@@ -793,22 +799,26 @@ class LogNegManager:
             pl.xlabel(r"$I$", fontsize=20)
             pl.ylabel(r"$n$", fontsize=20)
             pl.grid(linestyle="--", color='0.9')
+            legend = None
             if label is not None:
-                pl.legend(loc='best', borderaxespad=0., fontsize=16)
+                legend = pl.legend(loc='upper left', bbox_to_anchor=(1, 1), borderaxespad=0., fontsize=16)
             mpl.rc('xtick', labelsize=16)
             mpl.rc('ytick', labelsize=16)
             pl.tight_layout()
             date = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
             if saveFig:
                 figureName = self.getFigureName(plotsDirectory, TypeOfData.OccupationNumber, date)
-                pl.savefig(figureName)
+                if legend:
+                    pl.savefig(figureName, bbox_extra_artists=(legend,), bbox_inches='tight')
+                else:
+                    pl.savefig(figureName, bbox_inches='tight')
 
 
     def plotOddVsEven(self, logNegEvenVsOdd, logNegArray, plotsDirectory, saveFig=True):
         if logNegEvenVsOdd is not None:
             if logNegArray is None:
                 logNegArray = self.computeFullLogNeg()
-            pl.figure()
+            pl.figure(figsize=(12, 6))
 
             for index in range(self.plottingInfo["NumberOfStates"]):
                 label = r"$LN$ Odd vs Even{}${:.2f}{}$".format(self.plottingInfo["MagnitudeName"],
@@ -842,8 +852,9 @@ class LogNegManager:
             pl.xlabel(r"$I$", fontsize=20)
             pl.ylabel(r"$LogNeg(I)$", fontsize=20)
             pl.grid(linestyle="--", color='0.9')
+            legend = None
             if label is not None:
-                pl.legend(loc='best', borderaxespad=0., fontsize=16)
+                legend = pl.legend(loc='upper left', bbox_to_anchor=(1, 1), borderaxespad=0., fontsize=16)
             mpl.rc('xtick', labelsize=16)
             mpl.rc('ytick', labelsize=16)
             pl.tight_layout()
@@ -852,12 +863,15 @@ class LogNegManager:
 
             if saveFig:
                 figureName = self.getFigureName(plotsDirectory, TypeOfData.OddVSEven, date)
-                pl.savefig(figureName)
+                if legend:
+                    pl.savefig(figureName, bbox_extra_artists=(legend,), bbox_inches='tight')
+                else:
+                    pl.savefig(figureName, bbox_inches='tight')
 
 
     def plotOneByOneForGivenMode(self, oneToOneGivenModes, specialModes, plotsDirectory, plotsDataDirectory, saveFig=True, saveData=True):
         if oneToOneGivenModes is not None:
-            pl.figure()
+            pl.figure(figsize=(12, 6))
 
             for index, mode in enumerate(specialModes):
                 label = r"$LN$ {} vs each other".format(mode)
@@ -884,8 +898,9 @@ class LogNegManager:
             pl.xlabel(r"$I$", fontsize=20)
             pl.ylabel(r"$LogNeg(I)$", fontsize=20)
             pl.grid(linestyle="--", color='0.9')
+            legend = None
             if label is not None:
-                pl.legend(loc='best', borderaxespad=0., fontsize=16)
+                legend = pl.legend(loc='upper left', bbox_to_anchor=(1, 1), borderaxespad=0., fontsize=16)
             mpl.rc('xtick', labelsize=16)
             mpl.rc('ytick', labelsize=16)
             pl.tight_layout()
@@ -894,7 +909,7 @@ class LogNegManager:
 
             if saveFig:
                 figureName = self.getFigureName(plotsDirectory, TypeOfData.OneByOneForAGivenMode, date)
-                pl.savefig(figureName)
+                pl.savefig(figureName, bbox_extra_artists=(legend,), bbox_inches='tight')
 
             if saveData:
                 fileName = self.getFileName(plotsDataDirectory, TypeOfData.OneByOneForAGivenMode, date)[0]  # Asegurarse de que fileName sea una cadena de texto
@@ -915,7 +930,7 @@ class LogNegManager:
 
     def plotLogNegDifference(self, differenceArray, plotsDirectory, saveFig=True):
         if differenceArray is not None:
-            pl.figure()
+            pl.figure(figsize=(12, 6))
 
             for index in range(self.plottingInfo["NumberOfStates"]):
                 label = r"$LNAfter-LNBefore${}${:.2f}{}$".format(self.plottingInfo["MagnitudeName"],
@@ -944,8 +959,9 @@ class LogNegManager:
             pl.xlabel(r"$I$", fontsize=20)
             pl.ylabel(r"$LogNeg(I)$", fontsize=20)
             pl.grid(linestyle="--", color='0.9')
+            legend = None
             if label is not None:
-                pl.legend(loc='best', borderaxespad=0., fontsize=16)
+                legend= pl.legend(loc='upper left', bbox_to_anchor=(1, 1), borderaxespad=0., fontsize=16)
             mpl.rc('xtick', labelsize=16)
             mpl.rc('ytick', labelsize=16)
             pl.tight_layout()
@@ -954,7 +970,10 @@ class LogNegManager:
 
             if saveFig:
                 figureName = self.getFigureName(plotsDirectory, TypeOfData.LogNegDifference, date)
-                pl.savefig(figureName)
+                if legend:
+                    pl.savefig(figureName, bbox_extra_artists=(legend,), bbox_inches='tight')
+                else:
+                    pl.savefig(figureName, bbox_inches='tight')
 
 
     def generatePlots(self, results, plotsDirectory, plotsDataDirectory, specialModes, listOfWantedComputations, saveFig=True):
