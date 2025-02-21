@@ -98,8 +98,8 @@ class LogNegManager:
         #We now save the data in complex arrays
         time=len(solsbeta[1][:,0])
         self.kArray = np.arange(1, self.MODES + 1)
-        calphas_array = np.zeros((time, self.MODES, self.MODES),dtype = 'complex_')
-        cbetas_array = np.zeros((time, self.MODES, self.MODES),dtype = 'complex_')
+        calphas_array = np.zeros((time, self.MODES, self.MODES),dtype = np.complex128)
+        cbetas_array = np.zeros((time, self.MODES, self.MODES),dtype = np.complex128)
         for t in range(0,time):
             for i1 in range(0,self.MODES):
                 for i2 in range(1,self.MODES+1):
@@ -109,13 +109,13 @@ class LogNegManager:
 
         #We now save the array at time we are interested in given by the variable "instant"
         self.instantToPlot = min(self.instantToPlot, time-1)
-        calphas_tot_array = np.zeros((self.MODES, self.MODES),dtype = 'complex_')
-        cbetas_tot_array = np.zeros((self.MODES, self.MODES),dtype = 'complex_')
+        calphas_tot_array = np.zeros((self.MODES, self.MODES),dtype = np.complex128)
+        cbetas_tot_array = np.zeros((self.MODES, self.MODES),dtype = np.complex128)
         calphas_tot_array = calphas_array[self.instantToPlot, :, :]
         cbetas_tot_array = cbetas_array[self.instantToPlot, :, :]
 
         #For our simulations
-        Smatrix = np.zeros((2*self.MODES, 2*self.MODES), dtype=complex)
+        Smatrix = np.zeros((2*self.MODES, 2*self.MODES), dtype=np.complex128)
 
 
         #Constructing the Smatrix out of the alpha and beta complex dicts
@@ -246,7 +246,7 @@ class LogNegManager:
             self.outState[index] = self.inState[index].copy()
             self.outState[index].apply_Bogoliubov_unitary(self.transformationMatrix)
 
-    def computeFullLogNeg(self, inState: bool = False) -> dict[int, np.ndarray]:
+    def computeFullLogNeg(self, inState: bool = False) -> Dict[int, np.ndarray]:
         """
         Computes the full logarithmic negativity for the states.
         That is, for each mode, computes the logarithmic negativity taking that mode as partA and all the others as partB.
