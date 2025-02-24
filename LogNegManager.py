@@ -658,6 +658,9 @@ class LogNegManager:
             "logNegDifference": None,
         }
 
+        if self.plottingInfo["InStateName"] == InitialState.OneModeSqueezedFixedTemp.value or self.plottingInfo["InStateName"] == InitialState.ThermalFixedOneModeSqueezing.value:
+            tryToLoad = False
+
         for computation in listOfWantedComputations:
             loadData = tryToLoad and self.checkIfDataExists(plotsDataDirectory, computation)
 
