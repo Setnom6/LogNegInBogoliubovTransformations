@@ -159,7 +159,7 @@ class LogNegManager:
         if self.transformationMatrix is None:
             raise Exception("Transformation matrix not initialized")
         else:
-            qgt.Is_Sympletic(self.transformationMatrix,1)
+            return qgt.Is_Sympletic(self.transformationMatrix,1)
 
 
     def _createInState(self, initialStateType: InitialState) -> Dict[int, qgt.Gaussian_state]:
@@ -379,7 +379,7 @@ class LogNegManager:
         for stateIndex in range(self.plottingInfo["NumberOfStates"]):
             for index in range(self.MODES):
                 partA = [index]
-                if index in evenFirstModes:
+                if index not in evenFirstModes:
                     partB = [x for x in evenFirstModes if x != partA[0]]
                 else:
                     partB = [x for x in oddFirstModes if x != partA[0]]
@@ -693,7 +693,7 @@ class LogNegManager:
             else:
                 y_max = 10**np.ceil(np.log10(y_max))
 
-            x_max = (2 if self.MODES > 10**np.floor(np.log10(self.MODES)) else 1) * 10**np.floor(np.log10(self.MODES))
+            x_max = np.ceil(self.MODES / 100) * 100
 
             pl.xlim(1, x_max)
             pl.ylim(y_min, y_max)
@@ -741,7 +741,7 @@ class LogNegManager:
             else:
                 y_max = 10**np.ceil(np.log10(y_max))
 
-            x_max = (2 if self.MODES > 10**np.floor(np.log10(self.MODES)) else 1) * 10**np.floor(np.log10(self.MODES))
+            x_max = np.ceil(self.MODES / 100) * 100
 
             pl.xlim(1, x_max)
             pl.ylim(y_min, y_max)
@@ -792,7 +792,7 @@ class LogNegManager:
             else:
                 y_max = 10**np.ceil(np.log10(y_max))
 
-            x_max = (2 if self.MODES > 10**np.floor(np.log10(self.MODES)) else 1) * 10**np.floor(np.log10(self.MODES))
+            x_max = np.ceil(self.MODES / 100) * 100
 
             pl.xlim(1, x_max)
             pl.ylim(y_min, y_max)
@@ -816,8 +816,6 @@ class LogNegManager:
 
     def plotOddVsEven(self, logNegEvenVsOdd, logNegArray, plotsDirectory, saveFig=True):
         if logNegEvenVsOdd is not None:
-            if logNegArray is None:
-                logNegArray = self.computeFullLogNeg()
             pl.figure(figsize=(12, 6))
 
             for index in range(self.plottingInfo["NumberOfStates"]):
@@ -826,12 +824,20 @@ class LogNegManager:
                                                                self.plottingInfo["MagnitudeUnits"]) if self.plottingInfo["Magnitude"][index] != "" else "$LN$ Odd vs Even"
                 pl.loglog(self.kArray[:], logNegEvenVsOdd[index+1][:], label=label, alpha=0.5, marker='.', markersize=8, linewidth=0.2)
 
-            if logNegArray is not None and self.plottingInfo["NumberOfStates"] == 1:
-                pl.loglog(self.kArray[:], logNegArray[1][:], label=r"Full $LN$", alpha=0.5, marker='.', markersize=8, linewidth=0.2)
+            y_values_EvenOdd = np.concatenate(
+                [logNegEvenVsOdd[index + 1][:] for index in range(self.plottingInfo["NumberOfStates"])])
 
-            y_values_EvenOdd = np.concatenate([logNegEvenVsOdd[index+1][:] for index in range(self.plottingInfo["NumberOfStates"])])
-            y_values_Full = np.concatenate([logNegArray[index+1][:] for index in range(self.plottingInfo["NumberOfStates"])])
-            y_values = np.concatenate([y_values_EvenOdd, y_values_Full])
+            if logNegArray is not None:
+                if self.plottingInfo["NumberOfStates"] == 1:
+                    pl.loglog(self.kArray[:], logNegArray[1][:], label=r"Full $LN$", alpha=0.5, marker='.', markersize=8, linewidth=0.2)
+
+                y_values_Full = np.concatenate(
+                        [logNegArray[index + 1][:] for index in range(self.plottingInfo["NumberOfStates"])])
+                y_values = np.concatenate([y_values_EvenOdd, y_values_Full])
+
+            else:
+                y_values = y_values_EvenOdd
+
             y_min = np.min(y_values)
             y_max = np.max(y_values)
             
@@ -845,7 +851,7 @@ class LogNegManager:
             else:
                 y_max = 10**np.ceil(np.log10(y_max))
 
-            x_max = (2 if self.MODES > 10**np.floor(np.log10(self.MODES)) else 1) * 10**np.floor(np.log10(self.MODES))
+            x_max = np.ceil(self.MODES / 100) * 100
 
             pl.xlim(1, x_max)
             pl.ylim(y_min, y_max)
@@ -891,7 +897,7 @@ class LogNegManager:
             else:
                 y_max = 10**np.ceil(np.log10(y_max))
 
-            x_max = (2 if self.MODES > 10**np.floor(np.log10(self.MODES)) else 1) * 10**np.floor(np.log10(self.MODES))
+            x_max = np.ceil(self.MODES / 100) * 100
 
             pl.xlim(1, x_max)
             pl.ylim(y_min, y_max)
@@ -952,7 +958,7 @@ class LogNegManager:
             else:
                 y_max = 10**np.ceil(np.log10(y_max))
 
-            x_max = (2 if self.MODES > 10**np.floor(np.log10(self.MODES)) else 1) * 10**np.floor(np.log10(self.MODES))
+            x_max = np.ceil(self.MODES / 100) * 100
 
             pl.xlim(1, x_max)
             pl.ylim(y_min, y_max)
@@ -992,7 +998,7 @@ class LogNegManager:
             self.plotOccupationNumber(occupationNumber, plotsDirectory, saveFig=saveFig)
 
         if TypeOfData.OddVSEven in listOfWantedComputations and logNegEvenVsOdd is not None:
-            self.plotOddVsEven(logNegEvenVsOdd, logNegArray, plotsDirectory, saveFig=saveFig)
+            self.plotOddVsEven(logNegEvenVsOdd, None, plotsDirectory, saveFig=saveFig)
 
         if TypeOfData.OneByOneForAGivenMode in listOfWantedComputations and oneToOneGivenModes is not None:
             self.plotOneByOneForGivenMode(oneToOneGivenModes, specialModes, plotsDirectory, plotsDataDirectory, saveFig=saveFig, saveData=True)
