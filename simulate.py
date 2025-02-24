@@ -25,6 +25,8 @@ MODES = config.get("MODES", 128)
 instant = config.get("instant", 10)
 inStateType = InitialState[config.get("inStateType", "Vacuum")]
 arrayParameters = config.get("arrayParameters", [0.0])
+temperature = config.get("temperature", None)
+squeezingIntensity = config.get("squeezingIntensity", None)
 dataDirectory = config.get("dataDirectory", "./sims-128/")
 plotsDirectory = config.get("plotsDirectory", "./plots/128-1plt-plots/")
 plotsDataDirectory = config.get("plotsDataDirectory", "./plotsData/128-1plt-data/")
@@ -42,7 +44,8 @@ ensure_directory_exists(plotsDataDirectory)
 start_time = time.time()
 
 # Initialize the simulation
-simulation = LogNegManager(dataDirectory, inStateType, MODES, instant, arrayParameters)
+simulation = LogNegManager(dataDirectory, inStateType, MODES, instant, arrayParameters,
+                           temperature=temperature, squeezingIntensity=squeezingIntensity)
 
 # Perform the transformation to the initial state
 simulation.performTransformation()

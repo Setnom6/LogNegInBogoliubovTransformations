@@ -548,15 +548,30 @@ class Gaussian_state:                                                           
         LN = np.max([0, -np.log(ni)]);                                          # Calculate the logarithmic negativity at each time
         return LN
 
-
-
     def add_thermal_noise(self, nbar):
         """
-        Add thermal noise to the gaussian state
-        """
+        Add thermal noise to the Gaussian state using the transformation V' = S V S^T
 
-        assert nbar>=0, "Imaginary or negative occupation number for thermal state" # Make sure its occuption number is a non-negative number
-        self.V = (1+2*nbar)*self.V
+        ARGUMENTS:
+            nbar - the environmental number of quanta. Could be a np.ndarray vector or a float
+        """
+        if isinstance(nbar, np.ndarray):
+            assert len(nbar.shape) == 1, "Occupation number should be a vector or a float"
+            assert len(nbar) == self.N_modes, "If occupation number is a vector, it should have length equal to N_modes"
+
+            # Construct the scaling matrix S = ⨁ sqrt(1+2*n_i) I_2
+            S = np.diag(np.repeat(np.sqrt(1 + 2 * nbar), 2))
+
+        else:
+            assert (isinstance(nbar, float) or isinstance(nbar,
+                                                          int)) and nbar >= 0, "Occupation number should be a non-negative float or int"
+
+            # If nbar is a scalar, apply the same scaling to all modes
+            S = np.sqrt(1 + 2 * nbar) * np.eye(2 * self.N_modes)
+
+        # Apply the transformation using apply_unitary
+        d = np.zeros_like(self.R)  # No displacement component
+        self.apply_unitary(S, d)
 
     def fidelity(self, rho_2):
         """

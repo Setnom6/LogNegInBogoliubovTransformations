@@ -2,7 +2,7 @@ import pylab as pl
 import numpy as np
 import qgt
 from enum import Enum
-from typing import Dict, Any, List, Tuple
+from typing import Dict, Any, List, Tuple, Optional
 import os
 from datetime import datetime
 import re
@@ -13,6 +13,8 @@ class InitialState(Enum):
     Thermal = "thermal"
     OneModeSqueezed = "oneModeSqueezed"
     TwoModeSqueezed = "twoModeSqueezed"
+    OneModeSqueezedFixedTemp = "oneModeSqueezedFixedTemp"
+    ThermalFixedOneModeSqueezing = "thermalFixedOneModeSqueezing"
 
 class TypeOfData(Enum):
     FullLogNeg = "fullLogNeg"
@@ -33,7 +35,9 @@ class LogNegManager:
     transformationMatrix: np.ndarray
     plottingInfo: Dict[str, Any]
 
-    def __init__(self, dataDirectory: str, initialStateType: InitialState, MODES: int, instantToPlot: int, arrayParameters: np.ndarray = None):
+    def __init__(self, dataDirectory: str, initialStateType: InitialState, MODES: int, instantToPlot: int,
+                 arrayParameters: np.ndarray = None, temperature: Optional[float] = None,
+                 squeezingIntensity: Optional[float] = None):
         """
         Constructor for the LogNegManager class
 
@@ -52,7 +56,15 @@ class LogNegManager:
             - Thermal: Array of temperatures
             - OneModeSqueezed: Array of one mode squeezing intensities
             - TwoModeSqueezed: Array of two mode squeezing intensities (applied pairwise)
+            - OneModeSqueezedFixedTemp: Array of one mode squeezing intensities in a thermal bath with fixed T
+            - ThermalFixedOneModeSqueezing: Array of temperatures for initial states being one mode squeezing with a fixed squeezing intensity
         """
+        self._temperature = None
+        self._squeezing = None
+        if temperature is not None:
+            self.setTemperature(temperature)
+        if squeezingIntensity is not None:
+            self.setSqueezing(squeezingIntensity)
         self.plottingInfo = dict()
         self.MODES = MODES
         self.instantToPlot = instantToPlot
@@ -191,8 +203,9 @@ class LogNegManager:
             return state
 
         elif initialStateType == InitialState.Thermal:
-            # Thermal initial state assumes an array of temperatures and creates a thermal state for each temperature
+            # Thermal initial state assumes an array of temperatures (in Kelvin )and creates a thermal state for each temperature
             for index, temp in enumerate(self.arrayParameters):
+                temp = 0.694554*temp # For L = 0.01 m, we go from T(Kelvin) to T(Planck) by T(P) = kb*L*T(K)/(c*hbar)
                 n_vector = [1.0/(np.exp(np.pi*self.kArray[i]/temp)-1.0) for i in range(0, self.MODES)] if temp > 0 else [0 for i in range(0, self.MODES)]
                 state[index+1] = qgt.elementary_states("thermal", n_vector)
 
@@ -227,9 +240,49 @@ class LogNegManager:
             self.plottingInfo["MagnitudeUnits"] = ""
             return state
 
+        elif initialStateType == InitialState.OneModeSqueezedFixedTemp:
+            for index, intensity in enumerate(self.arrayParameters):
+                intensity_array = [intensity for i in range(0, self.MODES)]
+                state[index+1] = qgt.elementary_states("squeezed", intensity_array)
+                assert self._temperature is not None, "A 'temperature' must be defined to use OneModeSqueezedFixedTemp"
+                temp = 0.694554 * self._temperature  # For L = 0.01 m, we go from T(Kelvin) to T(Planck) by T(P) = kb*L*T(K)/(c*hbar)
+                n_vector = np.array([1.0 / (np.exp(np.pi * self.kArray[i] / temp) - 1.0) for i in
+                            range(0, self.MODES)] if temp > 0 else [0 for i in range(0, self.MODES)])
+
+                state[index+1].add_thermal_noise(n_vector)
+
+            self.plottingInfo["NumberOfStates"] = len(self.arrayParameters)
+            self.plottingInfo["Magnitude"] = self.arrayParameters
+            self.plottingInfo["MagnitudeName"] = f" for Sqz intensity "
+            self.plottingInfo["MagnitudeUnits"] = ""
+            self.plottingInfo["title"] = f"T = {self._temperature} K"
+            return state
+
+        elif initialStateType == InitialState.ThermalFixedOneModeSqueezing:
+            for index, temp in enumerate(self.arrayParameters):
+                temp = 0.694554 * temp  # For L = 0.01 m, we go from T(Kelvin) to T(Planck) by T(P) = kb*L*T(K)/(c*hbar)
+                n_vector = np.array([1.0 / (np.exp(np.pi * self.kArray[i] / temp) - 1.0) for i in
+                            range(0, self.MODES)] if temp > 0 else [0 for i in range(0, self.MODES)])
+                assert self._squeezing is not None, "A 'squeezingIntensity' must be defined to use ThermalFixedOneModeSqueezing"
+                r_vector = [self._squeezing for i in range(self.MODES)]
+                state[index+1] = qgt.elementary_states("squeezed", r_vector)
+                state[index+1].add_thermal_noise(n_vector)
+
+            self.plottingInfo["NumberOfStates"] = len(self.arrayParameters)
+            self.plottingInfo["Magnitude"] = self.arrayParameters
+            self.plottingInfo["MagnitudeName"] = f" for T "
+            self.plottingInfo["MagnitudeUnits"] = "K"
+            self.plottingInfo["title"] = f"r = {self._squeezing}"
+            return state
+
         else:
             raise ValueError("Unrecognized inStateName")
-        
+
+    def setTemperature(self, temp: float) -> None:
+        self._temperature = temp
+
+    def setSqueezing(self, r: float) -> None:
+        self._squeezing = r
 
     def performTransformation(self) -> None:
         """
@@ -705,7 +758,11 @@ class LogNegManager:
                 legend = pl.legend(loc='upper left', bbox_to_anchor=(1, 1), borderaxespad=0., fontsize=16)
             mpl.rc('xtick', labelsize=16)
             mpl.rc('ytick', labelsize=16)
+
             pl.tight_layout()
+            if "title" in self.plottingInfo:
+                pl.suptitle(self.plottingInfo["title"], fontsize=20)
+
 
             date = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
 
@@ -751,7 +808,11 @@ class LogNegManager:
             legend  =pl.legend(loc='upper left', bbox_to_anchor=(1, 1), borderaxespad=0., fontsize=16)
             mpl.rc('xtick', labelsize=16)
             mpl.rc('ytick', labelsize=16)
+
             pl.tight_layout()
+            if "title" in self.plottingInfo:
+                pl.suptitle(self.plottingInfo["title"], fontsize=20)
+
 
             if len(self.kArray) == len(highestOneToOneValue) == len(highestOneToOnePartner):
                 for i, txt in enumerate(highestOneToOnePartner):
@@ -804,7 +865,12 @@ class LogNegManager:
                 legend = pl.legend(loc='upper left', bbox_to_anchor=(1, 1), borderaxespad=0., fontsize=16)
             mpl.rc('xtick', labelsize=16)
             mpl.rc('ytick', labelsize=16)
+
             pl.tight_layout()
+            if "title" in self.plottingInfo:
+                pl.suptitle(self.plottingInfo["title"], fontsize=20)
+
+
             date = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
             if saveFig:
                 figureName = self.getFigureName(plotsDirectory, TypeOfData.OccupationNumber, date)
@@ -863,7 +929,11 @@ class LogNegManager:
                 legend = pl.legend(loc='upper left', bbox_to_anchor=(1, 1), borderaxespad=0., fontsize=16)
             mpl.rc('xtick', labelsize=16)
             mpl.rc('ytick', labelsize=16)
+
             pl.tight_layout()
+            if "title" in self.plottingInfo:
+                pl.suptitle(self.plottingInfo["title"], fontsize=20)
+
 
             date = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
 
@@ -909,7 +979,11 @@ class LogNegManager:
                 legend = pl.legend(loc='upper left', bbox_to_anchor=(1, 1), borderaxespad=0., fontsize=16)
             mpl.rc('xtick', labelsize=16)
             mpl.rc('ytick', labelsize=16)
+
             pl.tight_layout()
+            if "title" in self.plottingInfo:
+                pl.suptitle(self.plottingInfo["title"], fontsize=20)
+
 
             date = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
 
@@ -970,7 +1044,11 @@ class LogNegManager:
                 legend= pl.legend(loc='upper left', bbox_to_anchor=(1, 1), borderaxespad=0., fontsize=16)
             mpl.rc('xtick', labelsize=16)
             mpl.rc('ytick', labelsize=16)
+
             pl.tight_layout()
+            if "title" in self.plottingInfo:
+                pl.suptitle(self.plottingInfo["title"], fontsize=20)
+
 
             date = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
 
