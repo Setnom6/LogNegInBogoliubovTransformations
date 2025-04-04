@@ -7,6 +7,7 @@ import os
 from datetime import datetime
 import re
 import matplotlib as mpl
+from joblib import Parallel, delayed
 
 class InitialState(Enum):
     Vacuum = "vacuum"
@@ -23,6 +24,7 @@ class TypeOfData(Enum):
     OddVSEven = "oddVSEven"
     OccupationNumber = "occupationNumber"
     LogNegDifference = "logNegDifference"
+    JustSomeModes = "justSomeModes"
 
 
 class LogNegManager:
@@ -37,7 +39,7 @@ class LogNegManager:
 
     def __init__(self, dataDirectory: str, initialStateType: InitialState, MODES: int, instantToPlot: int,
                  arrayParameters: np.ndarray = None, temperature: Optional[float] = None,
-                 squeezingIntensity: Optional[float] = None):
+                 squeezingIntensity: Optional[float] = None, parallelize: bool = False):
         """
         Constructor for the LogNegManager class
 
@@ -75,6 +77,13 @@ class LogNegManager:
         self.transformationMatrix = self._constructTransformationMatrix(dataDirectory)
         self.inState = self._createInState(initialStateType)
         self.outState = dict()
+        self.parallelize = parallelize
+
+    def _execute(self, tasks):
+        if self.parallelize:
+            return Parallel(n_jobs=-1)(delayed(t)() for t in tasks)
+        else:
+            return [t() for t in tasks]
 
 
     def _constructTransformationMatrix(self, directory: str)-> np.ndarray:
@@ -205,8 +214,9 @@ class LogNegManager:
         elif initialStateType == InitialState.Thermal:
             # Thermal initial state assumes an array of temperatures (in Kelvin )and creates a thermal state for each temperature
             for index, temp in enumerate(self.arrayParameters):
-                temp = 0.694554*temp # For L = 0.01 m, we go from T(Kelvin) to T(Planck) by T(P) = kb*L*T(K)/(c*hbar)
-                n_vector = [1.0/(np.exp(np.pi*self.kArray[i]/temp)-1.0) for i in range(0, self.MODES)] if temp > 0 else [0 for i in range(0, self.MODES)]
+                temperature = 0.694554 * temp  # For L = 0.01 m, we go from T(Kelvin) to T(Planck) by T(P) = kb*L*T(K)/(c*hbar)
+                n_vector = [1.0 / (np.exp(np.pi * self.kArray[i] / temperature) - 1.0) for i in
+                            range(0, self.MODES)] if temperature > 0 else [0 for i in range(0, self.MODES)]
                 state[index+1] = qgt.elementary_states("thermal", n_vector)
 
             self.plottingInfo["NumberOfStates"] = len(self.arrayParameters)
@@ -260,9 +270,9 @@ class LogNegManager:
 
         elif initialStateType == InitialState.ThermalFixedOneModeSqueezing:
             for index, temp in enumerate(self.arrayParameters):
-                temp = 0.694554 * temp  # For L = 0.01 m, we go from T(Kelvin) to T(Planck) by T(P) = kb*L*T(K)/(c*hbar)
-                n_vector = np.array([1.0 / (np.exp(np.pi * self.kArray[i] / temp) - 1.0) for i in
-                            range(0, self.MODES)] if temp > 0 else [0 for i in range(0, self.MODES)])
+                temperature = 0.694554 * temp  # For L = 0.01 m, we go from T(Kelvin) to T(Planck) by T(P) = kb*L*T(K)/(c*hbar)
+                n_vector = np.array([1.0 / (np.exp(np.pi * self.kArray[i] / temperature) - 1.0) for i in
+                            range(0, self.MODES)] if temperature > 0 else [0 for i in range(0, self.MODES)])
                 assert self._squeezing is not None, "A 'squeezingIntensity' must be defined to use ThermalFixedOneModeSqueezing"
                 r_vector = [self._squeezing for i in range(self.MODES)]
                 state[index+1] = qgt.elementary_states("squeezed", r_vector)
@@ -299,7 +309,7 @@ class LogNegManager:
             self.outState[index] = self.inState[index].copy()
             self.outState[index].apply_Bogoliubov_unitary(self.transformationMatrix)
 
-    def computeFullLogNeg(self, inState: bool = False) -> Dict[int, np.ndarray]:
+    def computeFullLogNeg(self, inState: bool = False, numberOfModes: int = None) -> Dict[int, np.ndarray]:
         """
         Computes the full logarithmic negativity for the states.
         That is, for each mode, computes the logarithmic negativity taking that mode as partA and all the others as partB.
@@ -308,29 +318,38 @@ class LogNegManager:
         inState: bool
             If True, the logarithmic negativity is computed for the inState, otherwise for the outState
 
+        numberOfModes: int or None
+            Number of modes to consider (subset starting from 0). If None, use self.MODES
+
         Returns:
         dict[int, np.ndarray]
             Dictionary with the full logarithmic negativity for each state. (indexes 1, 2, ...)
             Each element of the dictionary is an array with the full logarithmic negativity for each mode.
             (state i, full log neg of mode j -> fullLogNeg[i][j])
         """
-        fullLogNeg = dict()
         stateToApply = self.outState if not inState else self.inState
-        for index in range(self.plottingInfo["NumberOfStates"]):
-            fullLogNeg[index+1] = np.zeros(self.MODES)
+        if numberOfModes is None:
+            numberOfModes = self.MODES
 
+        fullLogNeg = {i + 1: np.zeros(numberOfModes) for i in range(self.plottingInfo["NumberOfStates"])}
 
-        for i1 in range(0,self.MODES):
-            original_list = [i for i in range(0, self.MODES)]
-            partA = i1  # Change this to the element you want to remove
-            # Create a new list without the specified element
-            partB = [x for x in original_list if x != partA]
-            partA = [partA]
-            for index in range(self.plottingInfo["NumberOfStates"]):
-                fullLogNeg[index+1][i1] = stateToApply[index+1].logarithmic_negativity(partA, partB)
+        def task(index, i1):
+            return lambda: (
+                index + 1,
+                i1,
+                stateToApply[index + 1].logarithmic_negativity([i1], [x for x in range(self.MODES) if x != i1])
+            )
+
+        tasks = [task(index, i1)
+                 for i1 in range(numberOfModes)
+                 for index in range(self.plottingInfo["NumberOfStates"])]
+
+        results = self._execute(tasks)
+
+        for idx, i1, value in results:
+            fullLogNeg[idx][i1] = value
 
         return fullLogNeg
-
 
     def computeHighestOneByOne(self, inState: bool = False) -> Tuple[np.ndarray, np.ndarray]:
         """
@@ -349,28 +368,30 @@ class LogNegManager:
         """
         if self.plottingInfo["NumberOfStates"] > 1:
             raise ValueError("This method is only suitable for one IN state.")
-        
-        stateToApply = self.outState if not inState else self.inState
-        lognegarrayOneByOne: Dict[int, Dict[int,float]] = {}
-        maxPartners: List = []
-        maxValues: List = []
 
-        for i1 in range(self.MODES):
-            lognegarrayOneByOne[i1] = {}
-            partA = [i1]
-            for i2 in range(self.MODES):
-                partB = [i2]
-                if partB == partA:
-                    lognegarrayOneByOne[i1][i2] = 0.0
-                else:
-                    lognegarrayOneByOne[i1][i2] = stateToApply[1].logarithmic_negativity(partA, partB)
-            maxPartners.append(max(lognegarrayOneByOne[i1], key=lognegarrayOneByOne[i1].get))
-            maxValues.append(lognegarrayOneByOne[i1][maxPartners[i1]])     
+        state = self.outState if not inState else self.inState
+        modeCount = self.MODES
 
+        def task(i1):
+            def inner():
+                values = {}
+                for i2 in range(modeCount):
+                    if i1 == i2:
+                        values[i2] = 0.0
+                    else:
+                        values[i2] = state[1].logarithmic_negativity([i1], [i2])
+                maxPartner = max(values, key=values.get)
+                return values[maxPartner], maxPartner
+
+            return inner
+
+        tasks = [task(i1) for i1 in range(modeCount)]
+        results = self._execute(tasks)
+        maxValues, maxPartners = zip(*results)
         return np.array(maxValues), np.array(maxPartners)
 
 
-    def computeOneByOneForAGivenMode(self, mode, inState: bool = False) -> Dict[int, np.ndarray]: 
+    def computeOneByOneForAGivenMode(self, mode, inState: bool = False) -> Dict[int, np.ndarray]:
         """
         Computes the one-to-one logarithmic negativity for a given mode with all the others.
 
@@ -386,19 +407,26 @@ class LogNegManager:
             Each element of the dictionary is an array with the one-to-one logarithmic negativity for the given mode with each other mode.
             (state i, one-to-one log neg between given mode and mode j -> lognegarrayOneByOne[i][j])
         """
-        lognegarrayOneByOne: Dict[int, np.ndarray] = dict()
+        lognegarrayOneByOne: Dict[int, np.ndarray] = {i: np.zeros(self.MODES) for i in
+                                                      range(1, self.plottingInfo["NumberOfStates"] + 1)}
         stateToApply = self.outState if not inState else self.inState
-        mode -=1
+        mode -= 1 
 
-        for index in range(1, self.plottingInfo["NumberOfStates"]+1):
-            lognegarrayOneByOne[index] = np.zeros(self.MODES)
-            partA = [mode]
-            for i2 in range(self.MODES):
-                partB = [i2]
-                if partB == partA:
-                    lognegarrayOneByOne[index][i2] = 0.0
-                else:
-                    lognegarrayOneByOne[index][i2] = stateToApply[index].logarithmic_negativity(partA, partB)
+        def task(index, i2):
+            return lambda: (
+                index,
+                i2,
+                0.0 if mode == i2 else stateToApply[index].logarithmic_negativity([mode], [i2])
+            )
+
+        tasks = [task(index, i2)
+                 for index in range(1, self.plottingInfo["NumberOfStates"] + 1)
+                 for i2 in range(self.MODES)]
+
+        results = self._execute(tasks)
+
+        for index, i2, value in results:
+            lognegarrayOneByOne[index][i2] = value
 
         return lognegarrayOneByOne
     
@@ -418,25 +446,31 @@ class LogNegManager:
             Each element of the dictionary is an array with the logarithmic negativity for each mode.
             (state i, log neg of mode j -> lognegarrayOneByOne[i][j])
         """
-        evenFirstModes = np.arange(0, self.MODES-1, 2)
+        evenFirstModes = np.arange(0, self.MODES - 1, 2)
         oddFirstModes = np.arange(1, self.MODES, 2)
-
         stateToApply = self.outState if not inState else self.inState
+        logNegEvenVsOdd = {i + 1: np.zeros(self.MODES) for i in range(self.plottingInfo["NumberOfStates"])}
 
-        # From the plots one can see that even correlates with even and have no correlation with odds modes and vive versa
-
-        logNegEvenVsOdd = dict()
-        for index in range(self.plottingInfo["NumberOfStates"]):
-            logNegEvenVsOdd[index+1] = np.zeros((self.MODES,))
-
-        for stateIndex in range(self.plottingInfo["NumberOfStates"]):
-            for index in range(self.MODES):
-                partA = [index]
-                if index not in evenFirstModes:
-                    partB = [x for x in evenFirstModes if x != partA[0]]
+        def task(stateIndex, mode):
+            def inner():
+                partA = [mode]
+                if mode in evenFirstModes:
+                    partB = [x for x in oddFirstModes if x != mode]
                 else:
-                    partB = [x for x in oddFirstModes if x != partA[0]]
-                logNegEvenVsOdd[stateIndex+1][index] = stateToApply[stateIndex+1].logarithmic_negativity(partA, partB)
+                    partB = [x for x in evenFirstModes if x != mode]
+                value = stateToApply[stateIndex + 1].logarithmic_negativity(partA, partB)
+                return stateIndex + 1, mode, value
+
+            return inner
+
+        tasks = [task(stateIndex, mode)
+                 for stateIndex in range(self.plottingInfo["NumberOfStates"])
+                 for mode in range(self.MODES)]
+
+        results = self._execute(tasks)
+
+        for stateIndex, mode, value in results:
+            logNegEvenVsOdd[stateIndex][mode] = value
 
         return logNegEvenVsOdd
     
@@ -656,10 +690,12 @@ class LogNegManager:
             "logNegEvenVsOdd": None,
             "oneToOneGivenModes": None, 
             "logNegDifference": None,
+            "justSomeModes": None
         }
 
         if self.plottingInfo["InStateName"] == InitialState.OneModeSqueezedFixedTemp.value or self.plottingInfo["InStateName"] == InitialState.ThermalFixedOneModeSqueezing.value:
             tryToLoad = False
+
 
         for computation in listOfWantedComputations:
             loadData = tryToLoad and self.checkIfDataExists(plotsDataDirectory, computation)
@@ -722,18 +758,22 @@ class LogNegManager:
                     else:
                         print("For more than one initial state OneByOne for a list of modes is not computed")
 
-        
+                elif computation == TypeOfData.JustSomeModes:
+                    numberOfModes = len(specialModes)
+                    results["justSomeModes"] = self.computeFullLogNeg(numberOfModes=numberOfModes)
         return results
     
-    def plotFullLogNeg(self, logNegArray, plotsDirectory, saveFig=True):
+    def plotFullLogNeg(self, logNegArray, plotsDirectory, saveFig=True,  numberOfModes = None):
         if logNegArray is not None:
+            if numberOfModes is None:
+                numberOfModes = self.MODES
             pl.figure(figsize=(12, 6))
 
             for index in range(self.plottingInfo["NumberOfStates"]):
                 label = r"$LN${}${:.2f}{}$".format(self.plottingInfo["MagnitudeName"],
                                                    self.plottingInfo["Magnitude"][index],
                                                    self.plottingInfo["MagnitudeUnits"]) if self.plottingInfo["Magnitude"][index] != "" else None
-                pl.loglog(self.kArray[:], logNegArray[index+1][:], label=label, alpha=0.5, marker='.', markersize=8, linewidth=0.2)
+                pl.loglog(self.kArray[:numberOfModes], logNegArray[index+1][:], label=label, alpha=0.5, marker='.', markersize=8, linewidth=0.2)
 
             y_values = np.concatenate([logNegArray[index+1][:] for index in range(self.plottingInfo["NumberOfStates"])])
             y_min = np.min(y_values)
@@ -749,7 +789,7 @@ class LogNegManager:
             else:
                 y_max = 10**np.ceil(np.log10(y_max))
 
-            x_max = np.ceil(self.MODES / 100) * 100
+            x_max = np.ceil(numberOfModes / 100) * 100
 
             pl.xlim(1, x_max)
             pl.ylim(y_min, y_max)
@@ -1071,6 +1111,7 @@ class LogNegManager:
         logNegEvenVsOdd = results.get("logNegEvenVsOdd")
         oneToOneGivenModes = results.get("oneToOneGivenModes")
         differenceArray = results.get("logNegDifference")
+        justSomeModes = results.get("justSomeModes")
 
         if TypeOfData.FullLogNeg in listOfWantedComputations and logNegArray is not None:
             self.plotFullLogNeg(logNegArray, plotsDirectory, saveFig=saveFig)
@@ -1089,3 +1130,6 @@ class LogNegManager:
 
         if TypeOfData.HighestOneByOne in listOfWantedComputations and highestOneToOnePartner is not None and highestOneToOneValue is not None:
             self.plotHighestOneByOne(highestOneToOneValue, highestOneToOnePartner, logNegArray, plotsDirectory, saveFig=saveFig)
+
+        if TypeOfData.JustSomeModes in listOfWantedComputations and justSomeModes is not None:
+            self.plotFullLogNeg(justSomeModes, plotsDirectory, saveFig=saveFig, numberOfModes = len(specialModes))

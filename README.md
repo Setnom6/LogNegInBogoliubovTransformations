@@ -58,10 +58,12 @@ The simulation is controlled by a configuration file in JSON format. Below is an
         "OddVSEven",
         "LogNegDifference",
         "OneByOneForAGivenMode",
-        "OccupationNumber"
+        "OccupationNumber",
+        "JustSomeModes",
     ],
-    "tryToLoad": true,
-    "saveFig": true
+    "tryToLoad": false,
+    "saveFig": true,
+    "parallelize": true
 }
 ```
 
@@ -74,8 +76,8 @@ The simulation is controlled by a configuration file in JSON format. Below is an
   - ```Thermal```: Thermal state (lower states have lower frequencies and therefore more occupation number)
   - ```OneModeSqueezed```: One Mode squeezed state. The squeezing intensity apply equally to each mode.
   - ```TwoModeSqueezed```: Two Mode squeezed state. For each pair of subsequent modes they are squeezed with the same squeezing intensity.
-  - ```OneModeSqueezedFixedTemp```: One Mode Squeezed states with an initial temperature. The temperature (same for all initial states) should be given as a new argument in the json file as 'temperature'.
-  - ```ThermalFixedOneModeSqueezing```: Thermal states with one mode squeezing intensity. The squeezing intensity (same for all initial states) should be given as a new argument in the json file as 'squeezingIntensity'.
+  - ```OneModeSqueezedFixedTemp```: One Mode Squeezed states with an initial temperature. The temperature (same for all initial states) should be given as a new argument in the json file as ```"temperature"```.
+  - ```ThermalFixedOneModeSqueezing```: Thermal states with one mode squeezing intensity. The squeezing intensity (same for all initial states) should be given as a new argument in the json file as ```"squeezingIntensity"```.
 - ```arrayParameters```: (List(float)) List containing the relevant parameters for each type of initial State. For each element of the list, a different initial state is created (all of the same type). Vacuum does not need this parameter, for Thermal the array contains the different temperatures, for the Squeezed states the array contains the squeezing intensities.
 - ```dataDirectory```: (string) Path to the directory where the transformation matrices (alphas and betas) are stored.
 - ```plotsDirectory```: (string) Path to the directory where the generated plots will be stored.
@@ -88,8 +90,10 @@ The simulation is controlled by a configuration file in JSON format. Below is an
     - ```LogNegDifference```: Computes the difference in the logarithmic negativity between the state after the transformation and the state before the transformation.
     - ```OccupationNumber```: Computes the occupation number for each mode of the state.
     - ```OneByOneForAGivenMode```: (Only performed if there is just one IN state) For the modes given in the ```specialModes``` list, computes the one-to-one logarithmic negativity with all the other modes.
+    - ```JustSomeModes```: Computes the full logarithmic negativity for the modes specified in ```specialModes```
 - ```tryToLoad```: (bool) If true it looks for the last computations matching the type in ```plotsDataDirectory```.
 - ```saveFig```: (bool) If true, in addition of create the data, the simulation creates the figures of each simulation.
+- ```parallelize```: (bool) If true, the computations of the logarithmic negativity will be made in parallel using ```joblib```. If your system does not support simple parallelization (as a cluster with SLURM) set it to ```false´´´.
 
 # Warnings
 
@@ -97,3 +101,5 @@ The simulation is controlled by a configuration file in JSON format. Below is an
 - The directories ```plotsDirectory``` and ```plotsDataDirectory``` will be created if they do not exist. On the other hand the transformation matrix should be in the specified ```dataDirectory``` with the right format to be extracted.
 - The script "ExampleOfUse.ipynb" is outdated. It can be executed but it use an older version of LogNegManager where the plotting and load of data was not incorporated.
 - The use of initial states of type ```OneModeSqueezedFixedTemp``` and ```ThermalFixedOneModeSqueezing``` are still under fixing as change the temperature (or the squeezing intensity) parameter in the json file will load the previous computed files for this type of simulation.
+- Use the function ```parallelize``` carefully if your are not sure if joblib with simple setting would work on your hardware.
+- In general, try to not load data from precomputed simulations as this functionality needs a general fixing.
