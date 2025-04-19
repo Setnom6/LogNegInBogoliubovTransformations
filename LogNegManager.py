@@ -22,6 +22,7 @@ class TypeOfData(Enum):
     HighestOneByOne = "highestOneByOne"
     OneByOneForAGivenMode = "oneByOneForAGivenMode"
     OddVSEven = "oddVSEven"
+    SameParity = "sameParity"
     OccupationNumber = "occupationNumber"
     LogNegDifference = "logNegDifference"
     JustSomeModes = "justSomeModes"
@@ -410,7 +411,7 @@ class LogNegManager:
         lognegarrayOneByOne: Dict[int, np.ndarray] = {i: np.zeros(self.MODES) for i in
                                                       range(1, self.plottingInfo["NumberOfStates"] + 1)}
         stateToApply = self.outState if not inState else self.inState
-        mode -= 1 
+        mode -= 1  # ajustar a índice 0
 
         def task(index, i2):
             return lambda: (
@@ -473,6 +474,50 @@ class LogNegManager:
             logNegEvenVsOdd[stateIndex][mode] = value
 
         return logNegEvenVsOdd
+
+    def computeSameParity(self, inState: bool = False) -> Dict[int, np.ndarray]:
+        """
+                Computes the logarithmic negativity for the even modes vs the rest of even modes. The same for the odd modes.
+                That is, for each mode, computes the logarithmic negativity taking that mode as partA,
+                if the mode is even, then partB is the rest of the even modes, if the mode is odd, then partB is the rest of the odd modes.
+
+                Parameters:
+                inState: bool
+                    If True, the logarithmic negativity is computed for the inState, otherwise for the outState
+
+                Returns:
+                Dict[int, np.ndarray]
+                    Dictionary with the logarithmic negativity for each state. (indexes 1, 2, ...)
+                    Each element of the dictionary is an array with the logarithmic negativity for each mode.
+                    (state i, log neg of mode j -> lognegarrayOneByOne[i][j])
+                """
+        evenFirstModes = np.arange(0, self.MODES - 1, 2)
+        oddFirstModes = np.arange(1, self.MODES, 2)
+        stateToApply = self.outState if not inState else self.inState
+        logNegSameParity = {i + 1: np.zeros(self.MODES) for i in range(self.plottingInfo["NumberOfStates"])}
+
+        def task(stateIndex, mode):
+            def inner():
+                partA = [mode]
+                if mode in evenFirstModes:
+                    partB = [x for x in evenFirstModes if x != mode]
+                else:
+                    partB = [x for x in oddFirstModes if x != mode]
+                value = stateToApply[stateIndex + 1].logarithmic_negativity(partA, partB)
+                return stateIndex + 1, mode, value
+
+            return inner
+
+        tasks = [task(stateIndex, mode)
+                 for stateIndex in range(self.plottingInfo["NumberOfStates"])
+                 for mode in range(self.MODES)]
+
+        results = self._execute(tasks)
+
+        for stateIndex, mode, value in results:
+            logNegSameParity[stateIndex][mode] = value
+
+        return logNegSameParity
     
 
     def computeOccupationNumber(self, inState: bool = False) -> Dict[int, np.ndarray]:
@@ -575,7 +620,7 @@ class LogNegManager:
     def saveData(self, dataRelativeDirectory: str, data: Dict[int, np.ndarray], typeOfData: TypeOfData, date: str = "", beforeTransformation: bool = False) -> None:
         """
         Method to save the data in the files with the standarized format.
-        At the moment it only saves the data if is of type: FullLogNeg, HighestOneByOne, OddVSEven, OccupationNumber, Difference
+        At the moment it only saves the data if is of type: FullLogNeg, HighestOneByOne, OddVSEven, SameParity, OccupationNumber, Difference
 
         Parameters:
         dataRelativeDirectory: str
@@ -617,7 +662,7 @@ class LogNegManager:
     def loadData(self, dataRelativeDirectory: str, typeOfData: TypeOfData, beforeTransformation: bool = False) -> Dict[int, np.ndarray]:
         """
         Method to load the data from the files with the standarized format.
-        At the moment it only loads the data if is of type: FullLogNeg, HighestOneByOne, OddVSEven, OccupationNumber, Difference.
+        At the moment it only loads the data if is of type: FullLogNeg, HighestOneByOne, OddVSEven,SameParity, OccupationNumber, Difference.
 
         WARNING: At the moment it only loads the data for the last instant of the transformation matrix. It may happen that
         last time a simulation was run with all the same definitions (initialState, instant, number of states, etc) but with different parameters.
@@ -688,6 +733,7 @@ class LogNegManager:
             "highestOneToOnePartner": None,
             "occupationNumber": None,
             "logNegEvenVsOdd": None,
+            "logNegSameParity": None,
             "oneToOneGivenModes": None, 
             "logNegDifference": None,
             "justSomeModes": None
@@ -717,6 +763,9 @@ class LogNegManager:
                 elif computation == TypeOfData.OddVSEven:
                     results["logNegEvenVsOdd"] = self.loadData(plotsDataDirectory, computation)
 
+                elif computation == TypeOfData.SameParity:
+                    results["logNegSameParity"] = self.loadData(plotsDataDirectory, computation)
+
                 elif computation == TypeOfData.LogNegDifference:
                     results["logNegDifference"] = self.loadData(plotsDataDirectory, computation)
 
@@ -743,6 +792,10 @@ class LogNegManager:
                 elif computation == TypeOfData.OddVSEven:
                     results["logNegEvenVsOdd"] = self.computeOddVSEven()
                     self.saveData(plotsDataDirectory, results["logNegEvenVsOdd"], TypeOfData.OddVSEven, date)
+
+                elif computation == TypeOfData.SameParity:
+                    results["logNegSameParity"] = self.computeSameParity()
+                    self.saveData(plotsDataDirectory, results["logNegSameParity"], TypeOfData.SameParity, date)
 
                 elif computation == TypeOfData.LogNegDifference:
                     results["logNegDifference"] = self.computeLogNegDifference(results["logNegArray"])
@@ -987,6 +1040,72 @@ class LogNegManager:
                 else:
                     pl.savefig(figureName, bbox_inches='tight')
 
+    def plotSameParity(self, logNegSameParity, logNegArray, plotsDirectory, saveFig=True):
+        if logNegSameParity is not None:
+            pl.figure(figsize=(12, 6))
+
+            for index in range(self.plottingInfo["NumberOfStates"]):
+                label = r"$LN$ Same Parity {}${:.2f}{}$".format(self.plottingInfo["MagnitudeName"],
+                                                               self.plottingInfo["Magnitude"][index],
+                                                               self.plottingInfo["MagnitudeUnits"]) if \
+                self.plottingInfo["Magnitude"][index] != "" else "$LN$ Same Parity"
+                pl.loglog(self.kArray[:], logNegSameParity[index + 1][:], label=label, alpha=0.5, marker='.',
+                          markersize=8, linewidth=0.2)
+
+            y_values_SameParity = np.concatenate(
+                [logNegSameParity[index + 1][:] for index in range(self.plottingInfo["NumberOfStates"])])
+
+            if logNegArray is not None:
+                if self.plottingInfo["NumberOfStates"] == 1:
+                    pl.loglog(self.kArray[:], logNegArray[1][:], label=r"Full $LN$", alpha=0.5, marker='.',
+                              markersize=8, linewidth=0.2)
+
+                y_values_Full = np.concatenate(
+                    [logNegArray[index + 1][:] for index in range(self.plottingInfo["NumberOfStates"])])
+                y_values = np.concatenate([y_values_SameParity, y_values_Full])
+
+            else:
+                y_values = y_values_SameParity
+
+            y_min = np.min(y_values)
+            y_max = np.max(y_values)
+
+            if y_min <= 0:
+                y_min = 1e-8
+            else:
+                y_min = 10 ** np.floor(np.log10(y_min))
+
+            if y_max <= 0:
+                y_max = 1
+            else:
+                y_max = 10 ** np.ceil(np.log10(y_max))
+
+            x_max = np.ceil(self.MODES / 100) * 100
+
+            pl.xlim(1, x_max)
+            pl.ylim(y_min, y_max)
+            pl.xlabel(r"$I$", fontsize=20)
+            pl.ylabel(r"$LogNeg(I)$", fontsize=20)
+            pl.grid(linestyle="--", color='0.9')
+            legend = None
+            if label is not None:
+                legend = pl.legend(loc='upper left', bbox_to_anchor=(1, 1), borderaxespad=0., fontsize=16)
+            mpl.rc('xtick', labelsize=16)
+            mpl.rc('ytick', labelsize=16)
+
+            pl.tight_layout()
+            if "title" in self.plottingInfo:
+                pl.suptitle(self.plottingInfo["title"], fontsize=20)
+
+            date = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+
+            if saveFig:
+                figureName = self.getFigureName(plotsDirectory, TypeOfData.SameParity, date)
+                if legend:
+                    pl.savefig(figureName, bbox_extra_artists=(legend,), bbox_inches='tight')
+                else:
+                    pl.savefig(figureName, bbox_inches='tight')
+
 
     def plotOneByOneForGivenMode(self, oneToOneGivenModes, specialModes, plotsDirectory, plotsDataDirectory, saveFig=True, saveData=True):
         if oneToOneGivenModes is not None:
@@ -1109,6 +1228,7 @@ class LogNegManager:
         highestOneToOnePartner = results.get("highestOneToOnePartner")
         occupationNumber = results.get("occupationNumber")
         logNegEvenVsOdd = results.get("logNegEvenVsOdd")
+        logNegSameParity = results.get("logNegSameParity")
         oneToOneGivenModes = results.get("oneToOneGivenModes")
         differenceArray = results.get("logNegDifference")
         justSomeModes = results.get("justSomeModes")
@@ -1121,6 +1241,9 @@ class LogNegManager:
 
         if TypeOfData.OddVSEven in listOfWantedComputations and logNegEvenVsOdd is not None:
             self.plotOddVsEven(logNegEvenVsOdd, None, plotsDirectory, saveFig=saveFig)
+
+        if TypeOfData.SameParity in listOfWantedComputations and logNegEvenVsOdd is not None:
+            self.plotSameParity(logNegSameParity, None, plotsDirectory, saveFig=saveFig)
 
         if TypeOfData.OneByOneForAGivenMode in listOfWantedComputations and oneToOneGivenModes is not None:
             self.plotOneByOneForGivenMode(oneToOneGivenModes, specialModes, plotsDirectory, plotsDataDirectory, saveFig=saveFig, saveData=True)

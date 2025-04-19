@@ -56,6 +56,7 @@ The simulation is controlled by a configuration file in JSON format. Below is an
         "FullLogNeg",
         "HighestOneByOne",
         "OddVSEven",
+        "SameParity",
         "LogNegDifference",
         "OneByOneForAGivenMode",
         "OccupationNumber",
@@ -87,6 +88,7 @@ The simulation is controlled by a configuration file in JSON format. Below is an
     - ```FullLogNeg```: For each mode, computes the logarithmic negativity taking that mode as partA and all the others as partB.
     - ```HighestOneByOne```: (Only performed if there is just one IN state) Computes the highest one-to-one logarithmic negativity for each mode and the partner mode that gives the highest value.
     - ```OddVSEven```: Computes the logarithmic negativity for the even modes vs the odd modes and vice versa. That is, for each mode, computes the logarithmic negativity taking that mode as partA, if the mode is even, then partB is all the odd modes, if the mode is odd, then partB is all the even modes. 
+    - ```SameParity```: Computes the logarithmic negativity for the even modes vs the rest of even modes and vice versa. That is, for each mode, computes the logarithmic negativity taking that mode as partA, if the mode is even, then partB is the rest of even modes, if the mode is odd, then partB is the rest of odd modes. 
     - ```LogNegDifference```: Computes the difference in the logarithmic negativity between the state after the transformation and the state before the transformation.
     - ```OccupationNumber```: Computes the occupation number for each mode of the state.
     - ```OneByOneForAGivenMode```: (Only performed if there is just one IN state) For the modes given in the ```specialModes``` list, computes the one-to-one logarithmic negativity with all the other modes.
