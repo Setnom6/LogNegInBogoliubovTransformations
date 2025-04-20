@@ -16,6 +16,7 @@ class InitialState(Enum):
     TwoModeSqueezed = "twoModeSqueezed"
     OneModeSqueezedFixedTemp = "oneModeSqueezedFixedTemp"
     ThermalFixedOneModeSqueezing = "thermalFixedOneModeSqueezing"
+    TwoModeSqueezedFixedTemp = "twoModeSqueezedFixedTemp"
 
 class TypeOfData(Enum):
     FullLogNeg = "fullLogNeg"
@@ -60,6 +61,7 @@ class LogNegManager:
             - OneModeSqueezed: Array of one mode squeezing intensities
             - TwoModeSqueezed: Array of two mode squeezing intensities (applied pairwise)
             - OneModeSqueezedFixedTemp: Array of one mode squeezing intensities in a thermal bath with fixed T
+            - TwoModeSqueezedFixedTemp: Array of two mode squeezing intensities in a thermal bath with fixed T
             - ThermalFixedOneModeSqueezing: Array of temperatures for initial states being one mode squeezing with a fixed squeezing intensity
         """
         self._temperature = None
@@ -82,7 +84,7 @@ class LogNegManager:
 
     def _execute(self, tasks):
         if self.parallelize:
-            return Parallel(n_jobs=-1)(delayed(t)() for t in tasks)
+            return Parallel(n_jobs=5)(delayed(t)() for t in tasks)
         else:
             return [t() for t in tasks]
 
@@ -267,6 +269,25 @@ class LogNegManager:
             self.plottingInfo["MagnitudeName"] = f" for Sqz intensity "
             self.plottingInfo["MagnitudeUnits"] = ""
             self.plottingInfo["title"] = f"T = {self._temperature} K"
+            return state
+
+        elif initialStateType == InitialState.TwoModeSqueezedFixedTemp:
+            for index, intensity in enumerate(self.arrayParameters):
+                state[index + 1] = qgt.Gaussian_state("vacuum", self.MODES)
+                for j in range(0, self.MODES, 2):
+                    state[index + 1].two_mode_squeezing(intensity, 0, [j, j + 1])
+
+                assert self._temperature is not None, "A 'temperature' must be defined to use TwoModeSqueezedFixedTemp"
+                temp = 0.694554 * self._temperature  # For L = 0.01 m, we go from T(Kelvin) to T(Planck) by T(P) = kb*L*T(K)/(c*hbar)
+                n_vector = np.array([1.0 / (np.exp(np.pi * self.kArray[i] / temp) - 1.0) for i in
+                                     range(0, self.MODES)] if temp > 0 else [0 for i in range(0, self.MODES)])
+
+                state[index + 1].add_thermal_noise(n_vector)
+
+            self.plottingInfo["NumberOfStates"] = len(self.arrayParameters)
+            self.plottingInfo["Magnitude"] = self.arrayParameters
+            self.plottingInfo["MagnitudeName"] = " for Sqz intensity "
+            self.plottingInfo["MagnitudeUnits"] = ""
             return state
 
         elif initialStateType == InitialState.ThermalFixedOneModeSqueezing:
@@ -739,7 +760,9 @@ class LogNegManager:
             "justSomeModes": None
         }
 
-        if self.plottingInfo["InStateName"] == InitialState.OneModeSqueezedFixedTemp.value or self.plottingInfo["InStateName"] == InitialState.ThermalFixedOneModeSqueezing.value:
+        if (self.plottingInfo["InStateName"] == InitialState.OneModeSqueezedFixedTemp.value
+                or self.plottingInfo["InStateName"] == InitialState.ThermalFixedOneModeSqueezing.value
+                or self.plottingInfo["InStateName"] == InitialState.TwoModeSqueezedFixedTemp.value):
             tryToLoad = False
 
 

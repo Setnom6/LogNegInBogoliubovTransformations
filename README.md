@@ -78,6 +78,7 @@ The simulation is controlled by a configuration file in JSON format. Below is an
   - ```OneModeSqueezed```: One Mode squeezed state. The squeezing intensity apply equally to each mode.
   - ```TwoModeSqueezed```: Two Mode squeezed state. For each pair of subsequent modes they are squeezed with the same squeezing intensity.
   - ```OneModeSqueezedFixedTemp```: One Mode Squeezed states with an initial temperature. The temperature (same for all initial states) should be given as a new argument in the json file as ```"temperature"```.
+  - ```TwoModeSqueezedFixedTemp```: Two Mode Squeezed states with an initial temperature. The temperature (same for all initial states) should be given as a new argument in the json file as ```"temperature"```.
   - ```ThermalFixedOneModeSqueezing```: Thermal states with one mode squeezing intensity. The squeezing intensity (same for all initial states) should be given as a new argument in the json file as ```"squeezingIntensity"```.
 - ```arrayParameters```: (List(float)) List containing the relevant parameters for each type of initial State. For each element of the list, a different initial state is created (all of the same type). Vacuum does not need this parameter, for Thermal the array contains the different temperatures, for the Squeezed states the array contains the squeezing intensities.
 - ```dataDirectory```: (string) Path to the directory where the transformation matrices (alphas and betas) are stored.
