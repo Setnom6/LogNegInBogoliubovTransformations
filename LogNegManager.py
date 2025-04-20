@@ -1,13 +1,20 @@
-import pylab as pl
-import numpy as np
-import qgt
-from enum import Enum
-from typing import Dict, Any, List, Tuple, Optional
 import os
-from datetime import datetime
 import re
+from datetime import datetime
+from enum import Enum
+from itertools import combinations
+from math import comb
+from typing import Dict, Any, List, Tuple, Optional
+
 import matplotlib as mpl
+import numpy as np
+import pylab as pl
+import seaborn as sns
 from joblib import Parallel, delayed
+from matplotlib.colors import LogNorm
+
+import qgt
+
 
 class InitialState(Enum):
     Vacuum = "vacuum"
@@ -18,10 +25,12 @@ class InitialState(Enum):
     ThermalFixedOneModeSqueezing = "thermalFixedOneModeSqueezing"
     TwoModeSqueezedFixedTemp = "twoModeSqueezedFixedTemp"
 
+
 class TypeOfData(Enum):
     FullLogNeg = "fullLogNeg"
     HighestOneByOne = "highestOneByOne"
     OneByOneForAGivenMode = "oneByOneForAGivenMode"
+    OneVSTwoForAGivenMode = "oneVSTwoForAGivenMode"
     OddVSEven = "oddVSEven"
     SameParity = "sameParity"
     OccupationNumber = "occupationNumber"
@@ -88,8 +97,7 @@ class LogNegManager:
         else:
             return [t() for t in tasks]
 
-
-    def _constructTransformationMatrix(self, directory: str)-> np.ndarray:
+    def _constructTransformationMatrix(self, directory: str) -> np.ndarray:
         """
         Constructs the transformation matrix from the data stored in the directory.
         The data should be stored in files named as:
@@ -111,57 +119,56 @@ class LogNegManager:
         solsalpha = dict()
         solsbeta = dict()
 
-        a=np.arange(1,self.MODES+1)
+        a = np.arange(1, self.MODES + 1)
         dir = directory
         for i in a:
-            solsalpha[i]=pl.loadtxt(dir+"alpha-n"+str(self.MODES)+"-"+str(i)+".txt")
-            solsbeta[i]=pl.loadtxt(dir+"beta-n"+str(self.MODES)+"-"+str(i)+".txt")      
+            solsalpha[i] = pl.loadtxt(dir + "alpha-n" + str(self.MODES) + "-" + str(i) + ".txt")
+            solsbeta[i] = pl.loadtxt(dir + "beta-n" + str(self.MODES) + "-" + str(i) + ".txt")
 
-        time=len(solsbeta[1][:,0])
+        time = len(solsbeta[1][:, 0])
 
-        #We now save the data in complex arrays
-        time=len(solsbeta[1][:,0])
+        # We now save the data in complex arrays
+        time = len(solsbeta[1][:, 0])
         self.kArray = np.arange(1, self.MODES + 1)
-        calphas_array = np.zeros((time, self.MODES, self.MODES),dtype = np.complex128)
-        cbetas_array = np.zeros((time, self.MODES, self.MODES),dtype = np.complex128)
-        for t in range(0,time):
-            for i1 in range(0,self.MODES):
-                for i2 in range(1,self.MODES+1):
-                    calphas_array[t, i1, i2-1] = solsalpha[i2][t,1+2*i1]+solsalpha[i2][t,2+2*i1]*1j
-                    cbetas_array[t, i1, i2-1] = solsbeta[i2][t,1+2*i1]+solsbeta[i2][t,2+2*i1]*1j
-        #Label i2 corresponds to in MODES and i1 to out MODES
+        calphas_array = np.zeros((time, self.MODES, self.MODES), dtype=np.complex128)
+        cbetas_array = np.zeros((time, self.MODES, self.MODES), dtype=np.complex128)
+        for t in range(0, time):
+            for i1 in range(0, self.MODES):
+                for i2 in range(1, self.MODES + 1):
+                    calphas_array[t, i1, i2 - 1] = solsalpha[i2][t, 1 + 2 * i1] + solsalpha[i2][t, 2 + 2 * i1] * 1j
+                    cbetas_array[t, i1, i2 - 1] = solsbeta[i2][t, 1 + 2 * i1] + solsbeta[i2][t, 2 + 2 * i1] * 1j
+        # Label i2 corresponds to in MODES and i1 to out MODES
 
-        #We now save the array at time we are interested in given by the variable "instant"
-        self.instantToPlot = min(self.instantToPlot, time-1)
-        calphas_tot_array = np.zeros((self.MODES, self.MODES),dtype = np.complex128)
-        cbetas_tot_array = np.zeros((self.MODES, self.MODES),dtype = np.complex128)
+        # We now save the array at time we are interested in given by the variable "instant"
+        self.instantToPlot = min(self.instantToPlot, time - 1)
+        calphas_tot_array = np.zeros((self.MODES, self.MODES), dtype=np.complex128)
+        cbetas_tot_array = np.zeros((self.MODES, self.MODES), dtype=np.complex128)
         calphas_tot_array = calphas_array[self.instantToPlot, :, :]
         cbetas_tot_array = cbetas_array[self.instantToPlot, :, :]
 
-        #For our simulations
-        Smatrix = np.zeros((2*self.MODES, 2*self.MODES), dtype=np.complex128)
+        # For our simulations
+        Smatrix = np.zeros((2 * self.MODES, 2 * self.MODES), dtype=np.complex128)
 
-
-        #Constructing the Smatrix out of the alpha and beta complex dicts
-        #If we write A_out = Smatrix * A_in, see Eq. 39 of our paper, then
+        # Constructing the Smatrix out of the alpha and beta complex dicts
+        # If we write A_out = Smatrix * A_in, see Eq. 39 of our paper, then
         # Smatrix = ((alpha*_11 -beta*_11 alpha*_12 -beta*_12 ...) , (-beta_11 alpha_11 -beta_12 alpha_12 ...), ...)
-        #time = 5
+        # time = 5
         i = 0
-        for i1 in range(0,self.MODES):
+        for i1 in range(0, self.MODES):
             j = 0
-            for i2 in range(0,self.MODES):
+            for i2 in range(0, self.MODES):
                 Smatrix[i, j] = np.conjugate(calphas_tot_array[i1, i2])
-                j = j+1
+                j = j + 1
                 Smatrix[i, j] = -np.conjugate(cbetas_tot_array[i1, i2])
-                j = j+1
-            i=i+1
+                j = j + 1
+            i = i + 1
             j = 0
-            for i2 in range(0,self.MODES):
+            for i2 in range(0, self.MODES):
                 Smatrix[i, j] = -cbetas_tot_array[i1, i2]
-                j = j+1
+                j = j + 1
                 Smatrix[i, j] = calphas_tot_array[i1, i2]
-                j = j+1
-            i=i+1
+                j = j + 1
+            i = i + 1
 
         return Smatrix
 
@@ -183,8 +190,7 @@ class LogNegManager:
         if self.transformationMatrix is None:
             raise Exception("Transformation matrix not initialized")
         else:
-            return qgt.Is_Sympletic(self.transformationMatrix,1)
-
+            return qgt.Is_Sympletic(self.transformationMatrix, 1)
 
     def _createInState(self, initialStateType: InitialState) -> Dict[int, qgt.Gaussian_state]:
         """
@@ -220,7 +226,7 @@ class LogNegManager:
                 temperature = 0.694554 * temp  # For L = 0.01 m, we go from T(Kelvin) to T(Planck) by T(P) = kb*L*T(K)/(c*hbar)
                 n_vector = [1.0 / (np.exp(np.pi * self.kArray[i] / temperature) - 1.0) for i in
                             range(0, self.MODES)] if temperature > 0 else [0 for i in range(0, self.MODES)]
-                state[index+1] = qgt.elementary_states("thermal", n_vector)
+                state[index + 1] = qgt.elementary_states("thermal", n_vector)
 
             self.plottingInfo["NumberOfStates"] = len(self.arrayParameters)
             self.plottingInfo["Magnitude"] = self.arrayParameters
@@ -232,7 +238,7 @@ class LogNegManager:
             # OneModeSqueezed initial state assumes an array of squeezing intensities and creates an intial state with each mode equally squeezed for each intensity
             for index, intensity in enumerate(self.arrayParameters):
                 intensity_array = [intensity for i in range(0, self.MODES)]
-                state[index+1] = qgt.elementary_states("squeezed", intensity_array)
+                state[index + 1] = qgt.elementary_states("squeezed", intensity_array)
 
             self.plottingInfo["NumberOfStates"] = len(self.arrayParameters)
             self.plottingInfo["Magnitude"] = self.arrayParameters
@@ -243,10 +249,10 @@ class LogNegManager:
         elif initialStateType == InitialState.TwoModeSqueezed:
             # TwoModeSqueezed initial state assumes an array of squeezing intensities and creates an intial state with each pair of consecutive modes squeezed for each intensity
             for index, intensity in enumerate(self.arrayParameters):
-                state[index+1] = qgt.Gaussian_state("vacuum", self.MODES)
+                state[index + 1] = qgt.Gaussian_state("vacuum", self.MODES)
                 for j in range(0, self.MODES, 2):
-                    state[index+1].two_mode_squeezing(intensity, 0, [j, j+1])
-    
+                    state[index + 1].two_mode_squeezing(intensity, 0, [j, j + 1])
+
             self.plottingInfo["NumberOfStates"] = len(self.arrayParameters)
             self.plottingInfo["Magnitude"] = self.arrayParameters
             self.plottingInfo["MagnitudeName"] = " for Sqz intensity "
@@ -256,13 +262,13 @@ class LogNegManager:
         elif initialStateType == InitialState.OneModeSqueezedFixedTemp:
             for index, intensity in enumerate(self.arrayParameters):
                 intensity_array = [intensity for i in range(0, self.MODES)]
-                state[index+1] = qgt.elementary_states("squeezed", intensity_array)
+                state[index + 1] = qgt.elementary_states("squeezed", intensity_array)
                 assert self._temperature is not None, "A 'temperature' must be defined to use OneModeSqueezedFixedTemp"
                 temp = 0.694554 * self._temperature  # For L = 0.01 m, we go from T(Kelvin) to T(Planck) by T(P) = kb*L*T(K)/(c*hbar)
                 n_vector = np.array([1.0 / (np.exp(np.pi * self.kArray[i] / temp) - 1.0) for i in
-                            range(0, self.MODES)] if temp > 0 else [0 for i in range(0, self.MODES)])
+                                     range(0, self.MODES)] if temp > 0 else [0 for i in range(0, self.MODES)])
 
-                state[index+1].add_thermal_noise(n_vector)
+                state[index + 1].add_thermal_noise(n_vector)
 
             self.plottingInfo["NumberOfStates"] = len(self.arrayParameters)
             self.plottingInfo["Magnitude"] = self.arrayParameters
@@ -294,11 +300,11 @@ class LogNegManager:
             for index, temp in enumerate(self.arrayParameters):
                 temperature = 0.694554 * temp  # For L = 0.01 m, we go from T(Kelvin) to T(Planck) by T(P) = kb*L*T(K)/(c*hbar)
                 n_vector = np.array([1.0 / (np.exp(np.pi * self.kArray[i] / temperature) - 1.0) for i in
-                            range(0, self.MODES)] if temperature > 0 else [0 for i in range(0, self.MODES)])
+                                     range(0, self.MODES)] if temperature > 0 else [0 for i in range(0, self.MODES)])
                 assert self._squeezing is not None, "A 'squeezingIntensity' must be defined to use ThermalFixedOneModeSqueezing"
                 r_vector = [self._squeezing for i in range(self.MODES)]
-                state[index+1] = qgt.elementary_states("squeezed", r_vector)
-                state[index+1].add_thermal_noise(n_vector)
+                state[index + 1] = qgt.elementary_states("squeezed", r_vector)
+                state[index + 1].add_thermal_noise(n_vector)
 
             self.plottingInfo["NumberOfStates"] = len(self.arrayParameters)
             self.plottingInfo["Magnitude"] = self.arrayParameters
@@ -323,11 +329,11 @@ class LogNegManager:
         """
         if self.transformationMatrix is None:
             raise Exception("Transformation matrix not initialized")
-        
+
         if self.inState is None:
             raise Exception("Initial state not initialized")
-        
-        for index in range(1, self.plottingInfo["NumberOfStates"]+1):
+
+        for index in range(1, self.plottingInfo["NumberOfStates"] + 1):
             self.outState[index] = self.inState[index].copy()
             self.outState[index].apply_Bogoliubov_unitary(self.transformationMatrix)
 
@@ -412,7 +418,6 @@ class LogNegManager:
         maxValues, maxPartners = zip(*results)
         return np.array(maxValues), np.array(maxPartners)
 
-
     def computeOneByOneForAGivenMode(self, mode, inState: bool = False) -> Dict[int, np.ndarray]:
         """
         Computes the one-to-one logarithmic negativity for a given mode with all the others.
@@ -451,7 +456,51 @@ class LogNegManager:
             lognegarrayOneByOne[index][i2] = value
 
         return lognegarrayOneByOne
-    
+
+    def computeOneVSTwoForAGivenMode(self, mode: int, inState: bool = False) -> Dict[int, np.ndarray]:
+        """
+        Computes the logarithmic negativity between a given mode and all unordered pairs of other modes.
+
+        Parameters:
+        mode: int
+            Mode to be used as partA.
+        inState: bool
+            If True, the logarithmic negativity is computed for the inState, otherwise for the outState.
+
+        Returns:
+        Dict[int, np.ndarray]
+            Dictionary where each key corresponds to a state index.
+            Each value is an array with shape (n_pairs,), containing the logarithmic negativities between `mode` and each pair (i,j) with i < j ≠ mode.
+        """
+
+        mode -= 1  # Ajustar a índice 0
+        stateToApply = self.inState if inState else self.outState
+
+        # Todas las combinaciones (i, j) con i < j ≠ mode
+        allPairs = [(i, j) for i, j in combinations(range(self.MODES), 2)
+                    if mode not in (i, j)]
+
+        nPairs = len(allPairs)
+        lognegDict = {i: np.zeros(nPairs) for i in range(1, self.plottingInfo["NumberOfStates"] + 1)}
+
+        def task(stateIndex, pairIndex, i, j):
+            return lambda: (
+                stateIndex,
+                pairIndex,
+                stateToApply[stateIndex].logarithmic_negativity([mode], [i, j])
+            )
+
+        tasks = [task(stateIndex, pairIndex, i, j)
+                 for stateIndex in range(1, self.plottingInfo["NumberOfStates"] + 1)
+                 for pairIndex, (i, j) in enumerate(allPairs)]
+
+        results = self._execute(tasks)
+
+        for stateIndex, pairIndex, value in results:
+            lognegDict[stateIndex][pairIndex] = value
+
+        return lognegDict
+
     def computeOddVSEven(self, inState: bool = False) -> Dict[int, np.ndarray]:
         """
         Computes the logarithmic negativity for the even modes vs the odd modes and vice versa.
@@ -539,7 +588,6 @@ class LogNegManager:
             logNegSameParity[stateIndex][mode] = value
 
         return logNegSameParity
-    
 
     def computeOccupationNumber(self, inState: bool = False) -> Dict[int, np.ndarray]:
         """
@@ -562,7 +610,7 @@ class LogNegManager:
             occupationNumber[index] = stateToApply[index].occupation_number().flatten()
 
         return occupationNumber
-    
+
     def computeLogNegDifference(self, logNegArray):
         """
         Computes the difference in the logarithmic negativity between the state after the transformation and the state before the transformation.
@@ -589,8 +637,9 @@ class LogNegManager:
                 differenceArray[index][mode] = logNegArray[index][mode] - logNegArrayBefore[index][mode]
 
         return differenceArray
-    
-    def getFigureName(self, plotsRelativeDirectory: str, typeOfData: TypeOfData, date: str = "", beforeTransformation: bool = False) -> str:
+
+    def getFigureName(self, plotsRelativeDirectory: str, typeOfData: TypeOfData, date: str = "",
+                      beforeTransformation: bool = False) -> str:
         """
         Assuming the plotsRelativeDirectory is defined from the location of the Jupyter Notebook, the standarized figure name is returned
 
@@ -609,10 +658,15 @@ class LogNegManager:
             Figure name with the standarized format
         """
         before = "Before" if beforeTransformation else ""
-        figureName = "./{}{}_{}{}_instant_{}_numOfPlots_{}_date_{}.pdf".format(plotsRelativeDirectory, typeOfData.value, self.plottingInfo["InStateName"],before,self.instantToPlot, self.plottingInfo["NumberOfStates"], date)
+        figureName = "./{}{}_{}{}_instant_{}_numOfPlots_{}_date_{}.pdf".format(plotsRelativeDirectory, typeOfData.value,
+                                                                               self.plottingInfo["InStateName"], before,
+                                                                               self.instantToPlot,
+                                                                               self.plottingInfo["NumberOfStates"],
+                                                                               date)
         return figureName
-    
-    def getFileName(self, dataRelativeDirectory: str, typeOfData: TypeOfData, date: str = "", beforeTransformation: bool = False) -> List[str]:
+
+    def getFileName(self, dataRelativeDirectory: str, typeOfData: TypeOfData, date: str = "",
+                    beforeTransformation: bool = False) -> List[str]:
         """
         Assuming the plotsRelativeDirectory is defined from the location of the Jupyter Notebook, 
         the standarized files names where the plot data is stored is returned
@@ -633,12 +687,16 @@ class LogNegManager:
         """
         before = "Before" if beforeTransformation else ""
         filesNames = []
-        for index in range(1, self.plottingInfo["NumberOfStates"]+1):
-            fileName = "./{}{}_{}{}_instant_{}_numOfPlots_{}_date_{}".format(dataRelativeDirectory, typeOfData.value, self.plottingInfo["InStateName"],before,self.instantToPlot, self.plottingInfo["NumberOfStates"],date)
+        for index in range(1, self.plottingInfo["NumberOfStates"] + 1):
+            fileName = "./{}{}_{}{}_instant_{}_numOfPlots_{}_date_{}".format(dataRelativeDirectory, typeOfData.value,
+                                                                             self.plottingInfo["InStateName"], before,
+                                                                             self.instantToPlot,
+                                                                             self.plottingInfo["NumberOfStates"], date)
             filesNames.append(fileName)
         return filesNames
-    
-    def saveData(self, dataRelativeDirectory: str, data: Dict[int, np.ndarray], typeOfData: TypeOfData, date: str = "", beforeTransformation: bool = False) -> None:
+
+    def saveData(self, dataRelativeDirectory: str, data: Dict[int, np.ndarray], typeOfData: TypeOfData, date: str = "",
+                 beforeTransformation: bool = False) -> None:
         """
         Method to save the data in the files with the standarized format.
         At the moment it only saves the data if is of type: FullLogNeg, HighestOneByOne, OddVSEven, SameParity, OccupationNumber, Difference
@@ -662,9 +720,9 @@ class LogNegManager:
 
         for index, fileName in enumerate(filesNamesToSave):
 
-            if typeOfData == TypeOfData.OneByOneForAGivenMode:
+            if typeOfData == TypeOfData.OneByOneForAGivenMode or typeOfData == TypeOfData.OneVSTwoForAGivenMode:
                 raise NotImplementedError("For {} data one have to save manually".format(typeOfData.value))
-            
+
             if typeOfData == TypeOfData.HighestOneByOne:
                 dataToSave = np.zeros((2, self.MODES))
                 dataToSave[0, :] = data[index + 1][0]
@@ -678,9 +736,9 @@ class LogNegManager:
                     dataToSave = data[index + 1]
 
             np.savetxt("{}_plotNumber_{}.txt".format(fileName, index + 1), dataToSave)
-            
-    
-    def loadData(self, dataRelativeDirectory: str, typeOfData: TypeOfData, beforeTransformation: bool = False) -> Dict[int, np.ndarray]:
+
+    def loadData(self, dataRelativeDirectory: str, typeOfData: TypeOfData, beforeTransformation: bool = False) -> Dict[
+        int, np.ndarray]:
         """
         Method to load the data from the files with the standarized format.
         At the moment it only loads the data if is of type: FullLogNeg, HighestOneByOne, OddVSEven,SameParity, OccupationNumber, Difference.
@@ -704,7 +762,8 @@ class LogNegManager:
         """
         data = dict()
 
-        filesNames = self.getFileName(dataRelativeDirectory, typeOfData, date="", beforeTransformation=beforeTransformation)   
+        filesNames = self.getFileName(dataRelativeDirectory, typeOfData, date="",
+                                      beforeTransformation=beforeTransformation)
 
         allFiles = [f"./{dataRelativeDirectory}{file}" for file in os.listdir(f"./{dataRelativeDirectory}")]
 
@@ -717,9 +776,9 @@ class LogNegManager:
 
         for index, fileName in enumerate(selectedFiles):
             dataFile = np.loadtxt(fileName)
-            if typeOfData == TypeOfData.OneByOneForAGivenMode:
+            if typeOfData == TypeOfData.OneByOneForAGivenMode or typeOfData == TypeOfData.OneVSTwoForAGivenMode:
                 return dict()
-                
+
             elif typeOfData == TypeOfData.HighestOneByOne:
                 data[index + 1] = np.zeros((2, self.MODES))
                 data[index + 1][0] = dataFile[0, :]
@@ -728,26 +787,28 @@ class LogNegManager:
                 if self.arrayParameters is not None:
                     arrayParameter = dataFile[0]
                     if arrayParameter != self.arrayParameters[index]:
-                        print("WARNING: Array parameter not found in the array parameters used to generate the data for {}".format(typeOfData))
-                        return dict()   
-                    data[index+1] = dataFile[1:]
+                        print(
+                            "WARNING: Array parameter not found in the array parameters used to generate the data for {}".format(
+                                typeOfData))
+                        return dict()
+                    data[index + 1] = dataFile[1:]
                 else:
-                    data[index+1] = dataFile
-                
-        return data
-        
+                    data[index + 1] = dataFile
 
-    def checkIfDataExists(self, dataRelativeDirectory: str, typeOfData: TypeOfData, beforeTransformation: bool = False) -> bool:
+        return data
+
+    def checkIfDataExists(self, dataRelativeDirectory: str, typeOfData: TypeOfData,
+                          beforeTransformation: bool = False) -> bool:
         """
         Checks if the data for the given parameters exists in the directory.
         At the moment is not very efficient as it loads all the data and then checks if it is empty.
         """
-        
+
         dataLoaded = self.loadData(dataRelativeDirectory, typeOfData, beforeTransformation=beforeTransformation)
         return len(dataLoaded) > 0
 
-
-    def performComputations(self, listOfWantedComputations: List[TypeOfData], plotsDataDirectory: str, tryToLoad: bool = True, specialModes: List[int] = []):
+    def performComputations(self, listOfWantedComputations: List[TypeOfData], plotsDataDirectory: str,
+                            tryToLoad: bool = True, specialModes: List[int] = []):
         results = {
             "logNegArray": None,
             "highestOneToOneValue": None,
@@ -755,7 +816,8 @@ class LogNegManager:
             "occupationNumber": None,
             "logNegEvenVsOdd": None,
             "logNegSameParity": None,
-            "oneToOneGivenModes": None, 
+            "oneToOneGivenModes": None,
+            "oneVSTwoForAGivenModes": None,
             "logNegDifference": None,
             "justSomeModes": None
         }
@@ -764,7 +826,6 @@ class LogNegManager:
                 or self.plottingInfo["InStateName"] == InitialState.ThermalFixedOneModeSqueezing.value
                 or self.plottingInfo["InStateName"] == InitialState.TwoModeSqueezedFixedTemp.value):
             tryToLoad = False
-
 
         for computation in listOfWantedComputations:
             loadData = tryToLoad and self.checkIfDataExists(plotsDataDirectory, computation)
@@ -802,8 +863,10 @@ class LogNegManager:
 
                 elif computation == TypeOfData.HighestOneByOne:
                     if self.plottingInfo["NumberOfStates"] == 1:
-                        results["highestOneToOneValue"], results["highestOneToOnePartner"] = self.computeHighestOneByOne()
-                        oneToOneDict = {1: np.array([results["highestOneToOneValue"], results["highestOneToOnePartner"]])}
+                        results["highestOneToOneValue"], results[
+                            "highestOneToOnePartner"] = self.computeHighestOneByOne()
+                        oneToOneDict = {
+                            1: np.array([results["highestOneToOneValue"], results["highestOneToOnePartner"]])}
                         self.saveData(plotsDataDirectory, oneToOneDict, computation, date)
                     else:
                         print("Highest one by one not computed for this initial state (more than one initial state)")
@@ -834,12 +897,23 @@ class LogNegManager:
                     else:
                         print("For more than one initial state OneByOne for a list of modes is not computed")
 
+                elif computation == TypeOfData.OneVSTwoForAGivenMode:
+                    if self.plottingInfo["NumberOfStates"] == 1:
+                        oneVsTwoGivenModes = dict()
+                        oneVsTwoGivenModes[1] = np.zeros((len(specialModes), comb(self.MODES - 1, 2)))
+                        for index, mode in enumerate(specialModes):
+                            oneVsTwoGivenModes[1][index] = self.computeOneVSTwoForAGivenMode(mode)[1]
+                        results["oneVSTwoForAGivenModes"] = oneVsTwoGivenModes
+                    else:
+                        print("For more than one initial state OneVsTwo for a list of modes is not computed")
+
+
                 elif computation == TypeOfData.JustSomeModes:
                     numberOfModes = len(specialModes)
                     results["justSomeModes"] = self.computeFullLogNeg(numberOfModes=numberOfModes)
         return results
-    
-    def plotFullLogNeg(self, logNegArray, plotsDirectory, saveFig=True,  numberOfModes = None):
+
+    def plotFullLogNeg(self, logNegArray, plotsDirectory, saveFig=True, numberOfModes=None):
         if logNegArray is not None:
             if numberOfModes is None:
                 numberOfModes = self.MODES
@@ -848,22 +922,25 @@ class LogNegManager:
             for index in range(self.plottingInfo["NumberOfStates"]):
                 label = r"$LN${}${:.2f}{}$".format(self.plottingInfo["MagnitudeName"],
                                                    self.plottingInfo["Magnitude"][index],
-                                                   self.plottingInfo["MagnitudeUnits"]) if self.plottingInfo["Magnitude"][index] != "" else None
-                pl.loglog(self.kArray[:numberOfModes], logNegArray[index+1][:], label=label, alpha=0.5, marker='.', markersize=8, linewidth=0.2)
+                                                   self.plottingInfo["MagnitudeUnits"]) if \
+                    self.plottingInfo["Magnitude"][index] != "" else None
+                pl.loglog(self.kArray[:numberOfModes], logNegArray[index + 1][:], label=label, alpha=0.5, marker='.',
+                          markersize=8, linewidth=0.2)
 
-            y_values = np.concatenate([logNegArray[index+1][:] for index in range(self.plottingInfo["NumberOfStates"])])
+            y_values = np.concatenate(
+                [logNegArray[index + 1][:] for index in range(self.plottingInfo["NumberOfStates"])])
             y_min = np.min(y_values)
             y_max = np.max(y_values)
-            
+
             if y_min <= 0:
                 y_min = 1e-8
             else:
-                y_min = 10**np.floor(np.log10(y_min))
-            
+                y_min = 10 ** np.floor(np.log10(y_min))
+
             if y_max <= 0:
                 y_max = 1
             else:
-                y_max = 10**np.ceil(np.log10(y_max))
+                y_max = 10 ** np.ceil(np.log10(y_max))
 
             x_max = np.ceil(numberOfModes / 100) * 100
 
@@ -882,7 +959,6 @@ class LogNegManager:
             if "title" in self.plottingInfo:
                 pl.suptitle(self.plottingInfo["title"], fontsize=20)
 
-
             date = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
 
             if saveFig:
@@ -892,30 +968,35 @@ class LogNegManager:
                 else:
                     pl.savefig(figureName, bbox_inches='tight')
 
-    def plotHighestOneByOne(self, highestOneToOneValue, highestOneToOnePartner, logNegArray, plotsDirectory, saveFig=True):
+    def plotHighestOneByOne(self, highestOneToOneValue, highestOneToOnePartner, logNegArray, plotsDirectory,
+                            saveFig=True):
         if highestOneToOneValue is not None and highestOneToOnePartner is not None:
             if logNegArray is None:
                 logNegArray = self.computeFullLogNeg()
             pl.figure(figsize=(12, 6))
-            pl.loglog(self.kArray[:], highestOneToOneValue, label=r"Strongest one to one $LN$", alpha=0.5, marker='.', markersize=8, linewidth=0.2)
+            pl.loglog(self.kArray[:], highestOneToOneValue, label=r"Strongest one to one $LN$", alpha=0.5, marker='.',
+                      markersize=8, linewidth=0.2)
             if logNegArray is not None:
-                pl.loglog(self.kArray[:], logNegArray[1][:], label=r"Full $LN$", alpha=0.5, marker='.', markersize=8, linewidth=0.2)
+                pl.loglog(self.kArray[:], logNegArray[1][:], label=r"Full $LN$", alpha=0.5, marker='.', markersize=8,
+                          linewidth=0.2)
 
-            y_values_highest = np.concatenate((highestOneToOneValue, logNegArray[1][:] if logNegArray is not None else []))
-            y_values_Full = np.concatenate([logNegArray[index+1][:] for index in range(self.plottingInfo["NumberOfStates"])])
+            y_values_highest = np.concatenate(
+                (highestOneToOneValue, logNegArray[1][:] if logNegArray is not None else []))
+            y_values_Full = np.concatenate(
+                [logNegArray[index + 1][:] for index in range(self.plottingInfo["NumberOfStates"])])
             y_values = np.concatenate([y_values_highest, y_values_Full])
             y_min = np.min(y_values)
             y_max = np.max(y_values)
-            
+
             if y_min <= 0:
                 y_min = 1e-8
             else:
-                y_min = 10**np.floor(np.log10(y_min))
-            
+                y_min = 10 ** np.floor(np.log10(y_min))
+
             if y_max <= 0:
                 y_max = 1
             else:
-                y_max = 10**np.ceil(np.log10(y_max))
+                y_max = 10 ** np.ceil(np.log10(y_max))
 
             x_max = np.ceil(self.MODES / 100) * 100
 
@@ -924,7 +1005,7 @@ class LogNegManager:
             pl.xlabel(r"$I$", fontsize=20)
             pl.ylabel(r"$LogNeg(I)$", fontsize=20)
             pl.grid(linestyle="--", color='0.9')
-            legend  =pl.legend(loc='upper left', bbox_to_anchor=(1, 1), borderaxespad=0., fontsize=16)
+            legend = pl.legend(loc='upper left', bbox_to_anchor=(1, 1), borderaxespad=0., fontsize=16)
             mpl.rc('xtick', labelsize=16)
             mpl.rc('ytick', labelsize=16)
 
@@ -932,10 +1013,10 @@ class LogNegManager:
             if "title" in self.plottingInfo:
                 pl.suptitle(self.plottingInfo["title"], fontsize=20)
 
-
             if len(self.kArray) == len(highestOneToOneValue) == len(highestOneToOnePartner):
                 for i, txt in enumerate(highestOneToOnePartner):
-                    pl.annotate(txt+1, (self.kArray[i], highestOneToOneValue[i]), textcoords="offset points", xytext=(0, 10), ha='center')
+                    pl.annotate(txt + 1, (self.kArray[i], highestOneToOneValue[i]), textcoords="offset points",
+                                xytext=(0, 10), ha='center')
             else:
                 raise ValueError("The lengths of k_array, maxValues, and maxPartners do not match.")
 
@@ -948,29 +1029,31 @@ class LogNegManager:
                 else:
                     pl.savefig(figureName, bbox_inches='tight')
 
-    
     def plotOccupationNumber(self, occupationNumber, plotsDirectory, saveFig=True):
         if occupationNumber is not None:
             pl.figure(figsize=(12, 6))
             for index in range(self.plottingInfo["NumberOfStates"]):
-                label = r"$n${}${:.2f}{}$".format(self.plottingInfo["MagnitudeName"], 
-                                                  self.plottingInfo["Magnitude"][index], 
-                                                  self.plottingInfo["MagnitudeUnits"]) if self.plottingInfo["Magnitude"][index] != "" else None
-                pl.loglog(self.kArray[:], occupationNumber[index+1], label=label, alpha=0.5, marker='.', markersize=8, linewidth=0.2)
+                label = r"$n${}${:.2f}{}$".format(self.plottingInfo["MagnitudeName"],
+                                                  self.plottingInfo["Magnitude"][index],
+                                                  self.plottingInfo["MagnitudeUnits"]) if \
+                    self.plottingInfo["Magnitude"][index] != "" else None
+                pl.loglog(self.kArray[:], occupationNumber[index + 1], label=label, alpha=0.5, marker='.', markersize=8,
+                          linewidth=0.2)
 
-            y_values = np.concatenate([occupationNumber[index+1] for index in range(self.plottingInfo["NumberOfStates"])])
+            y_values = np.concatenate(
+                [occupationNumber[index + 1] for index in range(self.plottingInfo["NumberOfStates"])])
             y_min = np.min(y_values)
             y_max = np.max(y_values)
 
             if y_min <= 0:
                 y_min = 1e-8
             else:
-                y_min = 10**np.floor(np.log10(y_min))
-            
+                y_min = 10 ** np.floor(np.log10(y_min))
+
             if y_max <= 0:
                 y_max = 1
             else:
-                y_max = 10**np.ceil(np.log10(y_max))
+                y_max = 10 ** np.ceil(np.log10(y_max))
 
             x_max = np.ceil(self.MODES / 100) * 100
 
@@ -989,7 +1072,6 @@ class LogNegManager:
             if "title" in self.plottingInfo:
                 pl.suptitle(self.plottingInfo["title"], fontsize=20)
 
-
             date = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
             if saveFig:
                 figureName = self.getFigureName(plotsDirectory, TypeOfData.OccupationNumber, date)
@@ -998,7 +1080,6 @@ class LogNegManager:
                 else:
                     pl.savefig(figureName, bbox_inches='tight')
 
-
     def plotOddVsEven(self, logNegEvenVsOdd, logNegArray, plotsDirectory, saveFig=True):
         if logNegEvenVsOdd is not None:
             pl.figure(figsize=(12, 6))
@@ -1006,18 +1087,21 @@ class LogNegManager:
             for index in range(self.plottingInfo["NumberOfStates"]):
                 label = r"$LN$ Odd vs Even{}${:.2f}{}$".format(self.plottingInfo["MagnitudeName"],
                                                                self.plottingInfo["Magnitude"][index],
-                                                               self.plottingInfo["MagnitudeUnits"]) if self.plottingInfo["Magnitude"][index] != "" else "$LN$ Odd vs Even"
-                pl.loglog(self.kArray[:], logNegEvenVsOdd[index+1][:], label=label, alpha=0.5, marker='.', markersize=8, linewidth=0.2)
+                                                               self.plottingInfo["MagnitudeUnits"]) if \
+                    self.plottingInfo["Magnitude"][index] != "" else "$LN$ Odd vs Even"
+                pl.loglog(self.kArray[:], logNegEvenVsOdd[index + 1][:], label=label, alpha=0.5, marker='.',
+                          markersize=8, linewidth=0.2)
 
             y_values_EvenOdd = np.concatenate(
                 [logNegEvenVsOdd[index + 1][:] for index in range(self.plottingInfo["NumberOfStates"])])
 
             if logNegArray is not None:
                 if self.plottingInfo["NumberOfStates"] == 1:
-                    pl.loglog(self.kArray[:], logNegArray[1][:], label=r"Full $LN$", alpha=0.5, marker='.', markersize=8, linewidth=0.2)
+                    pl.loglog(self.kArray[:], logNegArray[1][:], label=r"Full $LN$", alpha=0.5, marker='.',
+                              markersize=8, linewidth=0.2)
 
                 y_values_Full = np.concatenate(
-                        [logNegArray[index + 1][:] for index in range(self.plottingInfo["NumberOfStates"])])
+                    [logNegArray[index + 1][:] for index in range(self.plottingInfo["NumberOfStates"])])
                 y_values = np.concatenate([y_values_EvenOdd, y_values_Full])
 
             else:
@@ -1025,16 +1109,16 @@ class LogNegManager:
 
             y_min = np.min(y_values)
             y_max = np.max(y_values)
-            
+
             if y_min <= 0:
                 y_min = 1e-8
             else:
-                y_min = 10**np.floor(np.log10(y_min))
-            
+                y_min = 10 ** np.floor(np.log10(y_min))
+
             if y_max <= 0:
                 y_max = 1
             else:
-                y_max = 10**np.ceil(np.log10(y_max))
+                y_max = 10 ** np.ceil(np.log10(y_max))
 
             x_max = np.ceil(self.MODES / 100) * 100
 
@@ -1053,7 +1137,6 @@ class LogNegManager:
             if "title" in self.plottingInfo:
                 pl.suptitle(self.plottingInfo["title"], fontsize=20)
 
-
             date = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
 
             if saveFig:
@@ -1069,9 +1152,9 @@ class LogNegManager:
 
             for index in range(self.plottingInfo["NumberOfStates"]):
                 label = r"$LN$ Same Parity {}${:.2f}{}$".format(self.plottingInfo["MagnitudeName"],
-                                                               self.plottingInfo["Magnitude"][index],
-                                                               self.plottingInfo["MagnitudeUnits"]) if \
-                self.plottingInfo["Magnitude"][index] != "" else "$LN$ Same Parity"
+                                                                self.plottingInfo["Magnitude"][index],
+                                                                self.plottingInfo["MagnitudeUnits"]) if \
+                    self.plottingInfo["Magnitude"][index] != "" else "$LN$ Same Parity"
                 pl.loglog(self.kArray[:], logNegSameParity[index + 1][:], label=label, alpha=0.5, marker='.',
                           markersize=8, linewidth=0.2)
 
@@ -1129,28 +1212,183 @@ class LogNegManager:
                 else:
                     pl.savefig(figureName, bbox_inches='tight')
 
-
-    def plotOneByOneForGivenMode(self, oneToOneGivenModes, specialModes, plotsDirectory, plotsDataDirectory, saveFig=True, saveData=True):
+    def plotOneByOneForGivenMode(self, oneToOneGivenModes, specialModes, plotsDirectory, plotsDataDirectory,
+                                 saveFig=True, saveData=True):
         if oneToOneGivenModes is not None:
             pl.figure(figsize=(12, 6))
 
             for index, mode in enumerate(specialModes):
                 label = r"$LN$ {} vs each other".format(mode)
-                pl.loglog(self.kArray[:], oneToOneGivenModes[1][index][:], label=label, alpha=0.5, marker='.', markersize=8, linewidth=0.2)
+                pl.loglog(self.kArray[:], oneToOneGivenModes[1][index][:], label=label, alpha=0.5, marker='.',
+                          markersize=8, linewidth=0.2)
 
-            y_values = np.concatenate([oneToOneGivenModes[index+1][:] for index in range(self.plottingInfo["NumberOfStates"])])
+            y_values = np.concatenate(
+                [oneToOneGivenModes[index + 1][:] for index in range(self.plottingInfo["NumberOfStates"])])
             y_min = np.min(y_values)
             y_max = np.max(y_values)
-            
+
             if y_min <= 0:
                 y_min = 1e-8
             else:
-                y_min = 10**np.floor(np.log10(y_min))
-            
+                y_min = 10 ** np.floor(np.log10(y_min))
+
             if y_max <= 0:
                 y_max = 1
             else:
-                y_max = 10**np.ceil(np.log10(y_max))
+                y_max = 10 ** np.ceil(np.log10(y_max))
+
+            x_max = np.ceil(self.MODES / 100) * 100
+
+            pl.xlim(1, x_max)
+            pl.ylim(y_min, y_max)
+            pl.xlabel(r"$I$", fontsize=20)
+            pl.ylabel(r"$LogNeg(I)$", fontsize=20)
+            pl.grid(linestyle="--", color='0.9')
+            legend = None
+            if label is not None:
+                legend = pl.legend(loc='upper left', bbox_to_anchor=(1, 1), borderaxespad=0., fontsize=16)
+            mpl.rc('xtick', labelsize=16)
+            mpl.rc('ytick', labelsize=16)
+
+            pl.tight_layout()
+            if "title" in self.plottingInfo:
+                pl.suptitle(self.plottingInfo["title"] + "{}${: .2f}{}$".format(
+                    self.plottingInfo["MagnitudeName"], self.plottingInfo["Magnitude"][0],
+                    self.plottingInfo["MagnitudeUnits"]) if self.plottingInfo["Magnitude"][
+                                                                0] != "" else "", fontsize=20)
+
+            date = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+
+            if saveFig:
+                figureName = self.getFigureName(plotsDirectory, TypeOfData.OneByOneForAGivenMode, date)
+                pl.savefig(figureName, bbox_extra_artists=(legend,), bbox_inches='tight')
+
+            if saveData:
+                fileName = self.getFileName(plotsDataDirectory, TypeOfData.OneByOneForAGivenMode, date)[
+                    0]  # Asegurarse de que fileName sea una cadena de texto
+                dataToSave = np.zeros((self.MODES + 2, len(specialModes)))
+                for index, mode in enumerate(specialModes):
+                    arrayParameter = 0
+                    if self.arrayParameters is not None:
+                        arrayParameter = self.arrayParameters[0]
+                    dataToSave[0, index] = arrayParameter
+                    dataToSave[1, index] = mode
+                    dataToSave[2:, index] = oneToOneGivenModes[1][index]
+
+                os.makedirs(os.path.dirname(fileName), exist_ok=True)
+
+                for index, mode in enumerate(specialModes):
+                    np.savetxt("{}_plotNumber_{}.txt".format(fileName, index + 1), dataToSave[:, index])
+
+    def plotOneVsTwoForAGivenMode(self, oneVsTwoForGivenMode, specialModes, plotsDirectory,
+                                  plotsDataDirectory, saveFig=True, saveData=True):
+        if oneVsTwoForGivenMode is not None and len(specialModes) == 1:
+
+            allPairs = [(i, j) for i, j in combinations(range(self.MODES), 2)
+                        if specialModes[0] - 1 not in (i, j)]
+            mode = specialModes[0]
+            dataVector = oneVsTwoForGivenMode[1][0]
+            matrix = np.full((self.MODES, self.MODES), np.nan)
+
+            for index, (i, j) in enumerate(allPairs):
+                value = dataVector[index]
+                scalarValue = float(value) if np.ndim(value) != 0 else value
+                matrix[i, j] = scalarValue
+                matrix[j, i] = scalarValue
+
+            # Mask lower triangle
+            mask = np.tril(np.ones_like(matrix, dtype=bool))
+
+            # Create figure
+            pl.figure(figsize=(8, 6))
+
+            # Log normalization for positive values
+            vmin = np.nanmin(matrix[matrix > 0]) if np.any(matrix > 0) else 1e-10
+            vmax = np.nanmax(matrix)
+            norm = LogNorm(vmin=vmin, vmax=vmax)
+
+            sns.heatmap(matrix, mask=mask, cmap='viridis', norm=norm, square=True,
+                        cbar_kws={'label': r"$LogNeg$ (log scale)"}, rasterized=True)
+
+            pl.title(f"LogNeg of mode {mode} vs all pairs (excluding {mode})" + "{}${: .2f}{}$".format(
+                self.plottingInfo["MagnitudeName"], self.plottingInfo["Magnitude"][0],
+                self.plottingInfo["MagnitudeUnits"]) if self.plottingInfo["Magnitude"][
+                                                            0] != "" else "")
+            pl.xlabel("Mode i")
+            pl.ylabel("Mode j")
+
+            # Apply hardcoded limits if requested
+            applyLimits = False
+            if applyLimits:
+                xMin, xMax = 0, 50
+                yMin, yMax = 0, 50
+                pl.xlim(xMin, xMax)
+                pl.ylim(yMin, yMax)
+
+            # Add top 3 points if enabled
+            applyPoints = True
+            if applyPoints:
+                maskedMatrix = np.triu(matrix, k=1)
+                validIndices = [(i, j) for i in range(maskedMatrix.shape[0])
+                                for j in range(maskedMatrix.shape[1])
+                                if not np.isnan(maskedMatrix[i, j]) and
+                                (not applyLimits or (xMin <= j < xMax and yMin <= i < yMax))]
+
+                topCoords = sorted(validIndices, key=lambda x: maskedMatrix[x[0], x[1]], reverse=True)[:3]
+
+                colors = ['red', 'blue', 'green']
+                handles = []
+
+                for idx, (i, j) in enumerate(topCoords):
+                    color = colors[idx % len(colors)]
+                    handle = pl.Line2D([0], [0], marker='o', color='w', label=f'({i},{j})',
+                                       markerfacecolor=color, markersize=8)
+                    handles.append(handle)
+                    pl.plot(j + 0.5, i + 0.5, 'o', color=color)
+
+                pl.legend(handles=handles, title="Top LogNeg (i,j)", loc='upper right', fontsize=8, title_fontsize=9)
+
+            pl.tight_layout()
+
+            date = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+
+            if saveFig:
+                figureName = self.getFigureName(plotsDirectory, TypeOfData.OneVSTwoForAGivenMode, date)
+                pl.savefig(figureName)
+
+            if saveData:
+                fileNameBase = self.getFileName(plotsDataDirectory, TypeOfData.OneVSTwoForAGivenMode, date)[0]
+                os.makedirs(os.path.dirname(fileNameBase), exist_ok=True)
+                np.savetxt(f"{fileNameBase}_mode_{mode}.txt", matrix)
+
+            pl.close()
+
+    def plotLogNegDifference(self, differenceArray, plotsDirectory, saveFig=True):
+        if differenceArray is not None:
+            pl.figure(figsize=(12, 6))
+
+            for index in range(self.plottingInfo["NumberOfStates"]):
+                label = r"$LNAfter-LNBefore${}${:.2f}{}$".format(self.plottingInfo["MagnitudeName"],
+                                                                 self.plottingInfo["Magnitude"][index],
+                                                                 self.plottingInfo["MagnitudeUnits"]) if \
+                    self.plottingInfo["Magnitude"][index] != "" else None
+                pl.loglog(self.kArray[:], differenceArray[index + 1][:], label=label, alpha=0.5, marker='.',
+                          markersize=8, linewidth=0.2)
+
+            y_values = np.concatenate(
+                [differenceArray[index + 1][:] for index in range(self.plottingInfo["NumberOfStates"])])
+            y_min = np.min(y_values)
+            y_max = np.max(y_values)
+
+            if y_min <= 0:
+                y_min = 1e-8
+            else:
+                y_min = 10 ** np.floor(np.log10(y_min))
+
+            if y_max <= 0:
+                y_max = 1
+            else:
+                y_max = 10 ** np.ceil(np.log10(y_max))
 
             x_max = np.ceil(self.MODES / 100) * 100
 
@@ -1169,72 +1407,6 @@ class LogNegManager:
             if "title" in self.plottingInfo:
                 pl.suptitle(self.plottingInfo["title"], fontsize=20)
 
-
-            date = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-
-            if saveFig:
-                figureName = self.getFigureName(plotsDirectory, TypeOfData.OneByOneForAGivenMode, date)
-                pl.savefig(figureName, bbox_extra_artists=(legend,), bbox_inches='tight')
-
-            if saveData:
-                fileName = self.getFileName(plotsDataDirectory, TypeOfData.OneByOneForAGivenMode, date)[0]  # Asegurarse de que fileName sea una cadena de texto
-                dataToSave = np.zeros((self.MODES+2, len(specialModes)))
-                for index, mode in enumerate(specialModes):
-                    arrayParameter = 0
-                    if self.arrayParameters is not None:
-                        arrayParameter = self.arrayParameters[0]
-                    dataToSave[0, index] = arrayParameter
-                    dataToSave[1, index] = mode
-                    dataToSave[2:, index] = oneToOneGivenModes[1][index]
-
-                os.makedirs(os.path.dirname(fileName), exist_ok=True)
-
-                for index, mode in enumerate(specialModes):
-                    np.savetxt("{}_plotNumber_{}.txt".format(fileName, index+1), dataToSave[:, index])
-
-
-    def plotLogNegDifference(self, differenceArray, plotsDirectory, saveFig=True):
-        if differenceArray is not None:
-            pl.figure(figsize=(12, 6))
-
-            for index in range(self.plottingInfo["NumberOfStates"]):
-                label = r"$LNAfter-LNBefore${}${:.2f}{}$".format(self.plottingInfo["MagnitudeName"],
-                                                                self.plottingInfo["Magnitude"][index],
-                                                                self.plottingInfo["MagnitudeUnits"]) if self.plottingInfo["Magnitude"][index] != "" else None
-                pl.loglog(self.kArray[:], differenceArray[index+1][:], label=label, alpha=0.5, marker='.', markersize=8, linewidth=0.2)
-
-            y_values = np.concatenate([differenceArray[index+1][:] for index in range(self.plottingInfo["NumberOfStates"])])
-            y_min = np.min(y_values)
-            y_max = np.max(y_values)
-            
-            if y_min <= 0:
-                y_min = 1e-8
-            else:
-                y_min = 10**np.floor(np.log10(y_min))
-            
-            if y_max <= 0:
-                y_max = 1
-            else:
-                y_max = 10**np.ceil(np.log10(y_max))
-
-            x_max = np.ceil(self.MODES / 100) * 100
-
-            pl.xlim(1, x_max)
-            pl.ylim(y_min, y_max)
-            pl.xlabel(r"$I$", fontsize=20)
-            pl.ylabel(r"$LogNeg(I)$", fontsize=20)
-            pl.grid(linestyle="--", color='0.9')
-            legend = None
-            if label is not None:
-                legend= pl.legend(loc='upper left', bbox_to_anchor=(1, 1), borderaxespad=0., fontsize=16)
-            mpl.rc('xtick', labelsize=16)
-            mpl.rc('ytick', labelsize=16)
-
-            pl.tight_layout()
-            if "title" in self.plottingInfo:
-                pl.suptitle(self.plottingInfo["title"], fontsize=20)
-
-
             date = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
 
             if saveFig:
@@ -1244,8 +1416,8 @@ class LogNegManager:
                 else:
                     pl.savefig(figureName, bbox_inches='tight')
 
-
-    def generatePlots(self, results, plotsDirectory, plotsDataDirectory, specialModes, listOfWantedComputations, saveFig=True):
+    def generatePlots(self, results, plotsDirectory, plotsDataDirectory, specialModes, listOfWantedComputations,
+                      saveFig=True):
         logNegArray = results.get("logNegArray")
         highestOneToOneValue = results.get("highestOneToOneValue")
         highestOneToOnePartner = results.get("highestOneToOnePartner")
@@ -1253,6 +1425,7 @@ class LogNegManager:
         logNegEvenVsOdd = results.get("logNegEvenVsOdd")
         logNegSameParity = results.get("logNegSameParity")
         oneToOneGivenModes = results.get("oneToOneGivenModes")
+        oneVSTwoForAGivenModes = results.get("oneVSTwoForAGivenModes")
         differenceArray = results.get("logNegDifference")
         justSomeModes = results.get("justSomeModes")
 
@@ -1269,13 +1442,19 @@ class LogNegManager:
             self.plotSameParity(logNegSameParity, None, plotsDirectory, saveFig=saveFig)
 
         if TypeOfData.OneByOneForAGivenMode in listOfWantedComputations and oneToOneGivenModes is not None:
-            self.plotOneByOneForGivenMode(oneToOneGivenModes, specialModes, plotsDirectory, plotsDataDirectory, saveFig=saveFig, saveData=True)
+            self.plotOneByOneForGivenMode(oneToOneGivenModes, specialModes, plotsDirectory, plotsDataDirectory,
+                                          saveFig=saveFig, saveData=True)
+
+        if TypeOfData.OneVSTwoForAGivenMode in listOfWantedComputations and oneVSTwoForAGivenModes is not None:
+            self.plotOneVsTwoForAGivenMode(oneVSTwoForAGivenModes, specialModes, plotsDirectory, plotsDataDirectory,
+                                           saveFig=saveFig, saveData=True)
 
         if TypeOfData.LogNegDifference in listOfWantedComputations and differenceArray is not None:
             self.plotLogNegDifference(differenceArray, plotsDirectory, saveFig=saveFig)
 
         if TypeOfData.HighestOneByOne in listOfWantedComputations and highestOneToOnePartner is not None and highestOneToOneValue is not None:
-            self.plotHighestOneByOne(highestOneToOneValue, highestOneToOnePartner, logNegArray, plotsDirectory, saveFig=saveFig)
+            self.plotHighestOneByOne(highestOneToOneValue, highestOneToOnePartner, logNegArray, plotsDirectory,
+                                     saveFig=saveFig)
 
         if TypeOfData.JustSomeModes in listOfWantedComputations and justSomeModes is not None:
-            self.plotFullLogNeg(justSomeModes, plotsDirectory, saveFig=saveFig, numberOfModes = len(specialModes))
+            self.plotFullLogNeg(justSomeModes, plotsDirectory, saveFig=saveFig, numberOfModes=len(specialModes))

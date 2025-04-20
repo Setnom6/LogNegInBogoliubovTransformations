@@ -59,6 +59,7 @@ The simulation is controlled by a configuration file in JSON format. Below is an
         "SameParity",
         "LogNegDifference",
         "OneByOneForAGivenMode",
+        "OneVSTwoForAGivenMode",
         "OccupationNumber",
         "JustSomeModes",
     ],
@@ -93,6 +94,7 @@ The simulation is controlled by a configuration file in JSON format. Below is an
     - ```LogNegDifference```: Computes the difference in the logarithmic negativity between the state after the transformation and the state before the transformation.
     - ```OccupationNumber```: Computes the occupation number for each mode of the state.
     - ```OneByOneForAGivenMode```: (Only performed if there is just one IN state) For the modes given in the ```specialModes``` list, computes the one-to-one logarithmic negativity with all the other modes.
+    - ```OneVSTwoForAGivenMode```: (Only performed if there is just one IN state) For the modes given in the ```specialModes``` list, computes the one-vs-two logarithmic negativity with all possible pairs of modes in the subsystem B. It only works if the list of specialModes have a single element.
     - ```JustSomeModes```: Computes the full logarithmic negativity for the modes specified in ```specialModes```
 - ```tryToLoad```: (bool) If true it looks for the last computations matching the type in ```plotsDataDirectory```.
 - ```saveFig```: (bool) If true, in addition of create the data, the simulation creates the figures of each simulation.
