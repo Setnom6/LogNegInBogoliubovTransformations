@@ -1307,8 +1307,28 @@ class LogNegManager:
             vmax = np.nanmax(matrix)
             norm = LogNorm(vmin=vmin, vmax=vmax)
 
+            # Heatmap sin etiquetas automáticas
             sns.heatmap(matrix, mask=mask, cmap='viridis', norm=norm, square=True,
-                        cbar_kws={'label': r"$LogNeg$ (log scale)"}, rasterized=True)
+                        cbar_kws={'label': r"$LogNeg$ (log scale)"}, rasterized=False,
+                        xticklabels=False, yticklabels=False)
+
+            # Apply hardcoded limits if requested
+            xMin, xMax, yMin, yMax = 1, self.MODES, 1, self.MODES
+            applyLimits = True
+            if applyLimits:
+                xMin, xMax = 0, 50
+                yMin, yMax = 0, 50
+                pl.xlim(xMin, xMax)
+                pl.ylim(yMin, yMax)
+
+            # Set custom ticks espaciados
+            stepX = max(1, xMax // 10)
+            stepY = max(1, yMax // 10)
+            ticksX = np.arange(0, xMax, stepX)
+            ticksY = np.arange(0, yMax, stepY)
+            tick_labels = ticksX + 1
+            pl.xticks(ticksX + 0.5, tick_labels, rotation=0)
+            pl.yticks(ticksY + 0.5, tick_labels, rotation=0)
 
             pl.title(f"LogNeg of mode {mode} vs all pairs (excluding {mode})" + "{}${: .2f}{}$".format(
                 self.plottingInfo["MagnitudeName"], self.plottingInfo["Magnitude"][0],
@@ -1316,14 +1336,6 @@ class LogNegManager:
                                                             0] != "" else "")
             pl.xlabel("Mode i")
             pl.ylabel("Mode j")
-
-            # Apply hardcoded limits if requested
-            applyLimits = False
-            if applyLimits:
-                xMin, xMax = 0, 50
-                yMin, yMax = 0, 50
-                pl.xlim(xMin, xMax)
-                pl.ylim(yMin, yMax)
 
             # Add top 3 points if enabled
             applyPoints = True
@@ -1341,7 +1353,8 @@ class LogNegManager:
 
                 for idx, (i, j) in enumerate(topCoords):
                     color = colors[idx % len(colors)]
-                    handle = pl.Line2D([0], [0], marker='o', color='w', label=f'({i},{j})',
+                    # Mostrar índices 1-based en la leyenda
+                    handle = pl.Line2D([0], [0], marker='o', color='w', label=f'({i + 1},{j + 1})',
                                        markerfacecolor=color, markersize=8)
                     handles.append(handle)
                     pl.plot(j + 0.5, i + 0.5, 'o', color=color)
