@@ -337,7 +337,15 @@ class LogNegManager:
             self.outState[index] = self.inState[index].copy()
             self.outState[index].apply_Bogoliubov_unitary(self.transformationMatrix)
 
-    def computeFullLogNeg(self, inState: bool = False, numberOfModes: int = None) -> Dict[int, np.ndarray]:
+    def checkPurity(self, inState: bool = False) -> None:
+        stateToCheck = self.inState.copy() if inState else self.outState.copy()
+        if stateToCheck is None:
+            raise Exception("No state to check")
+
+        for index in range(1, self.plottingInfo["NumberOfStates"] + 1):
+            print(f"Purity of state {index}: {stateToCheck[index].purity()}")
+
+    def computeFullLogNeg(self, inState: bool = False, specialModes: List[int] = None) -> Dict[int, np.ndarray]:
         """
         Computes the full logarithmic negativity for the states.
         That is, for each mode, computes the logarithmic negativity taking that mode as partA and all the others as partB.
@@ -346,8 +354,8 @@ class LogNegManager:
         inState: bool
             If True, the logarithmic negativity is computed for the inState, otherwise for the outState
 
-        numberOfModes: int or None
-            Number of modes to consider (subset starting from 0). If None, use self.MODES
+        specialModes: list of int
+            Particular modes to consider (incompatible with numberOfModes)
 
         Returns:
         dict[int, np.ndarray]
@@ -356,8 +364,13 @@ class LogNegManager:
             (state i, full log neg of mode j -> fullLogNeg[i][j])
         """
         stateToApply = self.outState if not inState else self.inState
-        if numberOfModes is None:
+        if specialModes is None:
             numberOfModes = self.MODES
+            modesToConsider = [idx for idx in range(numberOfModes)]
+        else:
+            numberOfModes = len(specialModes)
+            modesToConsider = specialModes
+            print(modesToConsider)
 
         fullLogNeg = {i + 1: np.zeros(numberOfModes) for i in range(self.plottingInfo["NumberOfStates"])}
 
@@ -369,13 +382,14 @@ class LogNegManager:
             )
 
         tasks = [task(index, i1)
-                 for i1 in range(numberOfModes)
+                 for i1 in modesToConsider
                  for index in range(self.plottingInfo["NumberOfStates"])]
 
         results = self._execute(tasks)
 
         for idx, i1, value in results:
-            fullLogNeg[idx][i1] = value
+            i1Index = modesToConsider.index(i1)
+            fullLogNeg[idx][i1Index] = value
 
         return fullLogNeg
 
@@ -909,14 +923,18 @@ class LogNegManager:
 
 
                 elif computation == TypeOfData.JustSomeModes:
-                    numberOfModes = len(specialModes)
-                    results["justSomeModes"] = self.computeFullLogNeg(numberOfModes=numberOfModes)
+                    results["justSomeModes"] = self.computeFullLogNeg(specialModes=specialModes)
         return results
 
-    def plotFullLogNeg(self, logNegArray, plotsDirectory, saveFig=True, numberOfModes=None):
+    def plotFullLogNeg(self, logNegArray, plotsDirectory, saveFig=True, specialModes=None):
         if logNegArray is not None:
-            if numberOfModes is None:
+            if specialModes is not None:
+                karray = [idx + 1 for idx in specialModes]
+                numberOfModes = len(specialModes)
+            else:
+                karray = self.kArray
                 numberOfModes = self.MODES
+
             pl.figure(figsize=(12, 6))
 
             for index in range(self.plottingInfo["NumberOfStates"]):
@@ -924,7 +942,7 @@ class LogNegManager:
                                                    self.plottingInfo["Magnitude"][index],
                                                    self.plottingInfo["MagnitudeUnits"]) if \
                     self.plottingInfo["Magnitude"][index] != "" else None
-                pl.loglog(self.kArray[:numberOfModes], logNegArray[index + 1][:], label=label, alpha=0.5, marker='.',
+                pl.loglog(karray, logNegArray[index + 1][:], label=label, alpha=0.5, marker='.',
                           markersize=8, linewidth=0.2)
 
             y_values = np.concatenate(
@@ -1470,4 +1488,4 @@ class LogNegManager:
                                      saveFig=saveFig)
 
         if TypeOfData.JustSomeModes in listOfWantedComputations and justSomeModes is not None:
-            self.plotFullLogNeg(justSomeModes, plotsDirectory, saveFig=saveFig, numberOfModes=len(specialModes))
+            self.plotFullLogNeg(justSomeModes, plotsDirectory, saveFig=saveFig, specialModes=specialModes)
