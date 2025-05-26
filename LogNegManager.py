@@ -28,6 +28,7 @@ class InitialState(Enum):
 
 class TypeOfData(Enum):
     FullLogNeg = "fullLogNeg"
+    FullLogNegBefore = "fullLogNegBefore"
     HighestOneByOne = "highestOneByOne"
     OneByOneForAGivenMode = "oneByOneForAGivenMode"
     OneVSTwoForAGivenMode = "oneVSTwoForAGivenMode"
@@ -185,6 +186,22 @@ class LogNegManager:
         """
 
         self.transformationMatrix = transformationMatrix
+
+    def invertTransformationMatrix(self) -> None:
+        """
+        Given that A_in = S @ A_out, this computes the inverse Bogoliubov transformation matrix
+        using the relation:
+
+            S^{-1} = Omega^{-1} @ S^† @ Omega
+
+        where S^† is the conjugate transpose of S.
+        """
+
+        omegaMatrix = self.inState[1].Omega  # Assumes shape (2N, 2N)
+        S = self.transformationMatrix  # The original matrix: A_in = S @ A_out
+        S_dagger = S.conj().T  # Conjugate transpose: S^†
+
+        self.transformationMatrix = np.linalg.inv(omegaMatrix) @ S_dagger @ omegaMatrix
 
     def checkSymplectic(self) -> bool:
         if self.transformationMatrix is None:
@@ -825,6 +842,7 @@ class LogNegManager:
                             tryToLoad: bool = True, specialModes: List[int] = []):
         results = {
             "logNegArray": None,
+            "logNegArrayBefore": None,
             "highestOneToOneValue": None,
             "highestOneToOnePartner": None,
             "occupationNumber": None,
@@ -866,6 +884,8 @@ class LogNegManager:
 
                 elif computation == TypeOfData.LogNegDifference:
                     results["logNegDifference"] = self.loadData(plotsDataDirectory, computation)
+                    results["logNegArray"] = self.loadData(plotsDataDirectory, TypeOfData.FullLogNeg)
+                    results["logNegArrayBefore"] = self.loadData(plotsDataDirectory, TypeOfData.FullLogNegBefore)
 
             else:
                 date = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
@@ -900,6 +920,10 @@ class LogNegManager:
                 elif computation == TypeOfData.LogNegDifference:
                     results["logNegDifference"] = self.computeLogNegDifference(results["logNegArray"])
                     self.saveData(plotsDataDirectory, results["logNegDifference"], TypeOfData.LogNegDifference, date)
+                    results["logNegArray"] = self.computeFullLogNeg()
+                    self.saveData(plotsDataDirectory, results["logNegArray"], TypeOfData.FullLogNeg, date)
+                    results["logNegArrayBefore"] = self.computeFullLogNeg(inState=True)
+                    self.saveData(plotsDataDirectory, results["logNegArrayBefore"], TypeOfData.FullLogNegBefore, date)
 
                 elif computation == TypeOfData.OneByOneForAGivenMode:
                     if self.plottingInfo["NumberOfStates"] == 1:
@@ -1301,6 +1325,7 @@ class LogNegManager:
     def plotOneVsTwoForAGivenMode(self, oneVsTwoForGivenMode, specialModes, plotsDirectory,
                                   plotsDataDirectory, saveFig=True, saveData=True):
         if oneVsTwoForGivenMode is not None and len(specialModes) == 1:
+            print(oneVsTwoForGivenMode)
 
             allPairs = [(i, j) for i, j in combinations(range(self.MODES), 2)
                         if specialModes[0] - 1 not in (i, j)]
@@ -1320,9 +1345,16 @@ class LogNegManager:
             # Create figure
             pl.figure(figsize=(8, 6))
 
-            # Log normalization for positive values
-            vmin = np.nanmin(matrix[matrix > 0]) if np.any(matrix > 0) else 1e-10
-            vmax = np.nanmax(matrix)
+            # Validar los datos antes de calcular vmin y vmax
+            valid_data = matrix[~np.isnan(matrix) & (matrix > 0)]
+            if valid_data.size > 0:
+                vmin = np.min(valid_data)
+                vmax = np.max(valid_data)
+            else:
+                vmin = 1e-10  # Valor predeterminado para evitar errores
+                vmax = 1  # Valor predeterminado para evitar errores
+
+            # Log normalization para valores positivos
             norm = LogNorm(vmin=vmin, vmax=vmax)
 
             # Heatmap sin etiquetas automáticas
@@ -1348,7 +1380,7 @@ class LogNegManager:
             pl.xticks(ticksX + 0.5, tick_labels, rotation=0)
             pl.yticks(ticksY + 0.5, tick_labels, rotation=0)
 
-            pl.title(f"LogNeg of mode {mode} vs all pairs (excluding {mode})" + "{}${: .2f}{}$".format(
+            pl.title(f"LogNeg of mode {mode + 1} vs all pairs (excluding {mode + 1})" + "{}${: .2f}{}$".format(
                 self.plottingInfo["MagnitudeName"], self.plottingInfo["Magnitude"][0],
                 self.plottingInfo["MagnitudeUnits"]) if self.plottingInfo["Magnitude"][
                                                             0] != "" else "")
@@ -1394,7 +1426,7 @@ class LogNegManager:
 
             pl.close()
 
-    def plotLogNegDifference(self, differenceArray, plotsDirectory, saveFig=True):
+    def plotLogNegDifference(self, differenceArray, logNegArray, logNegArrayBefore, plotsDirectory, saveFig=True):
         if differenceArray is not None:
             pl.figure(figsize=(12, 6))
 
@@ -1406,10 +1438,29 @@ class LogNegManager:
                 pl.loglog(self.kArray[:], differenceArray[index + 1][:], label=label, alpha=0.5, marker='.',
                           markersize=8, linewidth=0.2)
 
-            y_values = np.concatenate(
-                [differenceArray[index + 1][:] for index in range(self.plottingInfo["NumberOfStates"])])
-            y_min = np.min(y_values)
-            y_max = np.max(y_values)
+                labelLogNeg = r"$LNAfter${}${:.2f}{}$".format(self.plottingInfo["MagnitudeName"],
+                                                              self.plottingInfo["Magnitude"][index],
+                                                              self.plottingInfo["MagnitudeUnits"]) if \
+                    self.plottingInfo["Magnitude"][index] != "" else None
+
+                pl.loglog(self.kArray[:], logNegArray[index + 1][:], label=labelLogNeg, alpha=0.5, marker='.',
+                          markersize=8, linewidth=0.2)
+
+                labelLogNegBefore = r"$LNBefore${}${:.2f}{}$".format(self.plottingInfo["MagnitudeName"],
+                                                                     self.plottingInfo["Magnitude"][index],
+                                                                     self.plottingInfo["MagnitudeUnits"]) if \
+                    self.plottingInfo["Magnitude"][index] != "" else None
+
+                pl.loglog(self.kArray[:], logNegArrayBefore[index + 1][:], label=labelLogNegBefore, alpha=0.5,
+                          marker='.', markersize=8, linewidth=0.2)
+
+            y_values_logNegAfter = np.concatenate(
+                [logNegArray[index + 1][:] for index in range(self.plottingInfo["NumberOfStates"])])
+            y_values_logNegBefore = np.concatenate(
+                [logNegArray[index + 1][:] for index in range(self.plottingInfo["NumberOfStates"])])
+
+            y_min = np.min([np.min(y_values_logNegAfter), np.min(y_values_logNegBefore)])
+            y_max = np.max([np.max(y_values_logNegAfter), np.max(y_values_logNegBefore)])
 
             if y_min <= 0:
                 y_min = 1e-8
@@ -1450,6 +1501,7 @@ class LogNegManager:
     def generatePlots(self, results, plotsDirectory, plotsDataDirectory, specialModes, listOfWantedComputations,
                       saveFig=True):
         logNegArray = results.get("logNegArray")
+        logNegArrayBefore = results.get("logNegArrayBefore")
         highestOneToOneValue = results.get("highestOneToOneValue")
         highestOneToOnePartner = results.get("highestOneToOnePartner")
         occupationNumber = results.get("occupationNumber")
@@ -1481,7 +1533,9 @@ class LogNegManager:
                                            saveFig=saveFig, saveData=True)
 
         if TypeOfData.LogNegDifference in listOfWantedComputations and differenceArray is not None:
-            self.plotLogNegDifference(differenceArray, plotsDirectory, saveFig=saveFig)
+            if logNegArray is not None and logNegArrayBefore is not None:
+                self.plotLogNegDifference(differenceArray, logNegArray, logNegArrayBefore, plotsDirectory,
+                                          saveFig=saveFig)
 
         if TypeOfData.HighestOneByOne in listOfWantedComputations and highestOneToOnePartner is not None and highestOneToOneValue is not None:
             self.plotHighestOneByOne(highestOneToOneValue, highestOneToOnePartner, logNegArray, plotsDirectory,
