@@ -3,7 +3,7 @@
 
 # Requisites
 
-- The module qgt.py was obtained from https://github.com/Setnom6/Quantum-Gaussian-Information-Toolbox-v2 in its November 2024 version.
+- The module qgt.py was obtained from https://github.com/Setnom6/Quantum-Gaussian-Information-Toolbox-v2 in its May 2025 version.
 - The following modules are also necessary: pylab, numpy, enum, typing, os, datetime, re, matplotlib
 - To use the methods following the example the structure of folders and files should be as:
 
