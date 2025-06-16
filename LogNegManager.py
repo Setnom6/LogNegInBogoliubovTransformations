@@ -14,6 +14,7 @@ from joblib import Parallel, delayed
 from matplotlib.colors import LogNorm
 
 import qgt
+from partnerMethods import extractHawkingPartner, get_symplectic_from_covariance
 
 
 class InitialState(Enum):
@@ -37,6 +38,7 @@ class TypeOfData(Enum):
     OccupationNumber = "occupationNumber"
     LogNegDifference = "logNegDifference"
     JustSomeModes = "justSomeModes"
+    HawkingPartner = "hawkingPartner"
 
 
 class LogNegManager:
@@ -669,6 +671,43 @@ class LogNegManager:
 
         return differenceArray
 
+    def computeHawkingPartnerLogNeg(self, inState: bool = False, specialModes: List[int] = None) -> Dict[
+        int, np.ndarray]:
+        """
+        Computes the full logarithmic negativity between the hawking mode and its partner (each HP basis is independent from the others).
+        That is, for each mode, computes the logarithmic negativity taking that Hawking mode as partA and the partner as partB, tracing out the other modes.
+
+        Parameters:
+        inState: bool
+            If True, the logarithmic negativity is computed for the inState, otherwise for the outState
+
+        specialModes: list of int
+            Particular modes to consider
+
+        Returns:
+        dict[int, np.ndarray]
+            Dictionary with the Hawking Partner logarithmic negativity for each state. (indexes 1, 2, ...)
+            Each element of the dictionary is an array with the HP logarithmic negativity for each mode.
+            (state i, HP log neg of mode j -> fullLogNeg[i][j]) Only works for 1 state i
+        """
+
+        if self.plottingInfo["NumberOfStates"] != 1:
+            raise ValueError("Hawking-partner calculation only works for 1 simulation at once")
+
+        if self.plottingInfo["InStateName"] in [InitialState.Thermal.value, InitialState.OneModeSqueezedFixedTemp.value,
+                                                InitialState.ThermalFixedOneModeSqueezing.value,
+                                                InitialState.TwoModeSqueezedFixedTemp.value]:
+            raise AttributeError("Hawking-partner calculation only works for pure states")
+
+        results = self.obtainHPLogNegForListOfModes(specialModes, inState)
+
+        HPLogNeg = {i + 1: np.zeros(len(specialModes)) for i in range(self.plottingInfo["NumberOfStates"])}
+
+        for mode, logNeg in results:
+            HPLogNeg[1][specialModes.index(mode)] = logNeg
+
+        return HPLogNeg
+
     def getFigureName(self, plotsRelativeDirectory: str, typeOfData: TypeOfData, date: str = "",
                       beforeTransformation: bool = False) -> str:
         """
@@ -851,7 +890,8 @@ class LogNegManager:
             "oneToOneGivenModes": None,
             "oneVSTwoForAGivenModes": None,
             "logNegDifference": None,
-            "justSomeModes": None
+            "justSomeModes": None,
+            "hawkingPartner": None,
         }
 
         if (self.plottingInfo["InStateName"] == InitialState.OneModeSqueezedFixedTemp.value
@@ -948,6 +988,12 @@ class LogNegManager:
 
                 elif computation == TypeOfData.JustSomeModes:
                     results["justSomeModes"] = self.computeFullLogNeg(specialModes=specialModes)
+
+                elif computation == TypeOfData.HawkingPartner:
+                    if results["logNegArray"] is None:
+                        results["logNegArray"] = self.computeFullLogNeg(specialModes=specialModes)
+
+                    results["hawkingPartner"] = self.computeHawkingPartnerLogNeg(specialModes=specialModes)
         return results
 
     def plotFullLogNeg(self, logNegArray, plotsDirectory, saveFig=True, specialModes=None):
@@ -1498,6 +1544,78 @@ class LogNegManager:
                 else:
                     pl.savefig(figureName, bbox_inches='tight')
 
+    def plotHawkingPartner(self, hawkingPartnerArray, logNegArray, specialModes, plotsDirectory, saveFig=True):
+        if logNegArray is not None and hawkingPartnerArray is not None:
+            karray = [idx + 1 for idx in specialModes]
+            numberOfModes = len(specialModes)
+
+            pl.figure(figsize=(12, 6))
+
+            for index in range(self.plottingInfo["NumberOfStates"]):
+                labelFull = r"$FullLN${}${:.2f}{}$".format(self.plottingInfo["MagnitudeName"],
+                                                           self.plottingInfo["Magnitude"][index],
+                                                           self.plottingInfo["MagnitudeUnits"]) if \
+                    self.plottingInfo["Magnitude"][index] != "" else "FullLN"
+
+                labelHP = r"$Hawk-P LN${}${:.2f}{}$".format(self.plottingInfo["MagnitudeName"],
+                                                            self.plottingInfo["Magnitude"][index],
+                                                            self.plottingInfo["MagnitudeUnits"]) if \
+                    self.plottingInfo["Magnitude"][index] != "" else "Hawk-P LN"
+
+                pl.loglog(karray, logNegArray[index + 1][:], label=labelFull, alpha=0.5, marker='.',
+                          markersize=8, linewidth=0.2)
+                pl.loglog(karray, hawkingPartnerArray[index + 1][:], label=labelHP, alpha=0.5, marker='.',
+                          markersize=8, linewidth=0.2)
+
+            y_values_fullLog = np.concatenate(
+                [logNegArray[index + 1][:] for index in range(self.plottingInfo["NumberOfStates"])])
+            y_min_fl = np.min(y_values_fullLog)
+            y_max_fl = np.max(y_values_fullLog)
+
+            y_values_hp = np.concatenate(
+                [hawkingPartnerArray[index + 1][:] for index in range(self.plottingInfo["NumberOfStates"])])
+            y_min_hp = np.min(y_values_hp)
+            y_max_hp = np.max(y_values_hp)
+
+            y_min = np.min([y_min_hp, y_min_fl])
+            y_max = np.max([y_max_hp, y_max_fl])
+
+            if y_min <= 0:
+                y_min = 1e-8
+            else:
+                y_min = 10 ** np.floor(np.log10(y_min))
+
+            if y_max <= 0:
+                y_max = 1
+            else:
+                y_max = 10 ** np.ceil(np.log10(y_max))
+
+            x_max = np.ceil(numberOfModes / 100) * 100
+
+            pl.xlim(1, x_max)
+            pl.ylim(y_min, y_max)
+            pl.xlabel(r"$I$", fontsize=20)
+            pl.ylabel(r"$LogNeg(I)$", fontsize=20)
+            pl.grid(linestyle="--", color='0.9')
+            legend = None
+            if labelFull is not None:
+                legend = pl.legend(loc='upper left', bbox_to_anchor=(1, 1), borderaxespad=0., fontsize=16)
+            mpl.rc('xtick', labelsize=16)
+            mpl.rc('ytick', labelsize=16)
+
+            pl.tight_layout()
+            if "title" in self.plottingInfo:
+                pl.suptitle(self.plottingInfo["title"], fontsize=20)
+
+            date = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+
+            if saveFig:
+                figureName = self.getFigureName(plotsDirectory, TypeOfData.FullLogNeg, date)
+                if legend:
+                    pl.savefig(figureName, bbox_extra_artists=(legend,), bbox_inches='tight')
+                else:
+                    pl.savefig(figureName, bbox_inches='tight')
+
     def generatePlots(self, results, plotsDirectory, plotsDataDirectory, specialModes, listOfWantedComputations,
                       saveFig=True):
         logNegArray = results.get("logNegArray")
@@ -1511,6 +1629,7 @@ class LogNegManager:
         oneVSTwoForAGivenModes = results.get("oneVSTwoForAGivenModes")
         differenceArray = results.get("logNegDifference")
         justSomeModes = results.get("justSomeModes")
+        hawkingPartner = results.get("hawkingPartner")
 
         if TypeOfData.FullLogNeg in listOfWantedComputations and logNegArray is not None:
             self.plotFullLogNeg(logNegArray, plotsDirectory, saveFig=saveFig)
@@ -1543,3 +1662,83 @@ class LogNegManager:
 
         if TypeOfData.JustSomeModes in listOfWantedComputations and justSomeModes is not None:
             self.plotFullLogNeg(justSomeModes, plotsDirectory, saveFig=saveFig, specialModes=specialModes)
+
+        if TypeOfData.HawkingPartner in listOfWantedComputations and hawkingPartner is not None:
+            self.plotHawkingPartner(hawkingPartner, logNegArray, specialModes, plotsDirectory, saveFig=saveFig)
+
+    def obtainHawkingPartner(self, modeA: int = 0, inState: bool = False, atol: float = 1e-8):
+        """
+        Extracts the basis transformation that maps the original OUT basis to a new one
+        where mode 0 is the Hawking mode, mode 1 is the partner, and the rest are reordered.
+
+        Args:
+            modeA: mode to be considered the Hawking one
+            inState: wheter to obtain the partner for the inState or the outState
+
+        Returns:
+             newBogoliubovTransformation: Bogoliubov transformation in the new ordered basis from IN basis -> new OUT basis
+             changeOfBasis: 2N x 2N transformation from the original OUT basis → new OUT basis
+             statetoInBasis: Gaussian State in the in Basis to perform the newBogo on it (it works for states with thermal noise)
+        """
+
+        if self.plottingInfo["NumberOfStates"] != 1:
+            raise ValueError("Hawking-partner calculation only works for 1 simulation at once")
+
+        if InitialState.Thermal.value == self.plottingInfo["InStateName"]:
+            SInitial = np.eye(2 * self.MODES)
+            statetoInBasis = self.inState[1]
+
+        elif InitialState.OneModeSqueezedFixedTemp.value == self.plottingInfo["InStateName"]:
+            intensity_array = [self.arrayParameters[0] for _ in range(0, self.MODES)]
+            auxiliarInitialState = qgt.elementary_states("squeezed", intensity_array)
+            SInitial = qgt.BasisChange(get_symplectic_from_covariance(auxiliarInitialState.V), 0)
+            temperature = 0.694554 * self._temperature  # For L = 0.01 m, we go from T(Kelvin) to T(Planck) by T(P) = kb*L*T(K)/(c*hbar)
+            n_vector = [1.0 / (np.exp(np.pi * self.kArray[i] / temperature) - 1.0) for i in
+                        range(0, self.MODES)] if temperature > 0 else [0 for i in range(0, self.MODES)]
+            statetoInBasis = qgt.elementary_states("thermal", n_vector)
+
+        elif InitialState.TwoModeSqueezedFixedTemp.value == self.plottingInfo["InStateName"]:
+            auxiliarInitialState = qgt.Gaussian_state("vacuum", self.MODES)
+            for j in range(0, self.MODES, 2):
+                auxiliarInitialState.two_mode_squeezing(self.arrayParameters[0], 0, [j, j + 1])
+            SInitial = qgt.BasisChange(get_symplectic_from_covariance(auxiliarInitialState.V), 0)
+            temperature = 0.694554 * self._temperature  # For L = 0.01 m, we go from T(Kelvin) to T(Planck) by T(P) = kb*L*T(K)/(c*hbar)
+            n_vector = [1.0 / (np.exp(np.pi * self.kArray[i] / temperature) - 1.0) for i in
+                        range(0, self.MODES)] if temperature > 0 else [0 for i in range(0, self.MODES)]
+            statetoInBasis = qgt.elementary_states("thermal", n_vector)
+
+        elif InitialState.ThermalFixedOneModeSqueezing.value == self.plottingInfo["InStateName"]:
+            intensity_array = [self._squeezing for _ in range(0, self.MODES)]
+            auxiliarInitialState = qgt.elementary_states("squeezed", intensity_array)
+            SInitial = qgt.BasisChange(get_symplectic_from_covariance(auxiliarInitialState.V), 0)
+            temperature = 0.694554 * self.arrayParameters[
+                0]  # For L = 0.01 m, we go from T(Kelvin) to T(Planck) by T(P) = kb*L*T(K)/(c*hbar)
+            n_vector = [1.0 / (np.exp(np.pi * self.kArray[i] / temperature) - 1.0) for i in
+                        range(0, self.MODES)] if temperature > 0 else [0 for i in range(0, self.MODES)]
+            statetoInBasis = qgt.elementary_states("thermal", n_vector)
+
+        else:
+            SInitial = qgt.BasisChange(get_symplectic_from_covariance(self.inState[1].V), 0)
+            statetoInBasis = qgt.Gaussian_state("vacuum", self.MODES)
+
+        if not inState:
+            bogoliubovTransformation = self.transformationMatrix @ SInitial
+        else:
+            bogoliubovTransformation = SInitial
+
+        newBogoliubovTransformation, changeOfBasis = extractHawkingPartner(bogoliubovTransformation, modeA, atol=atol)
+
+        return newBogoliubovTransformation, changeOfBasis, statetoInBasis
+
+    def obtainHPLogNegForListOfModes(self, specialModes: List[int], inState: bool = False, atol: float = 1e-8):
+        def makeHPLogNegTask(mode):
+            def task():
+                newBogoTrans, _, newOutState = self.obtainHawkingPartner(mode, inState=inState)
+                newOutState.apply_Bogoliubov_unitary(newBogoTrans)
+                logNegPartner = newOutState.logarithmic_negativity([0], [1])
+                return mode, logNegPartner
+
+            return task
+
+        tasks = [makeHPLogNegTask(mode) for mode in specialModes]
+        return self._execute(tasks)
