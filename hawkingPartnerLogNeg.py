@@ -103,6 +103,7 @@ def main():
         }
     }
 
+    # Parameters to modify (change also the paths in dictNumberModes)
     MODES = 128
     inStateType = InitialState.TwoModeSqueezedFixedTemp  # Choose between OneMoOneModeSqueezedFixedTemp or TwoModeSqueezedFixedTemp
     squeezingFactors = [0.0, 0.5, 1.0]
@@ -110,6 +111,7 @@ def main():
     totalModes = 15
     parallelize = True
 
+    # Loop
     dataDirectory, plotsDirectory, plotsDataDirectory = get_directories(MODES, dictNumberModes)
     modesToApply = [idx for idx in range(totalModes)]
 
