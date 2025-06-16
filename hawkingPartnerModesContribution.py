@@ -113,10 +113,10 @@ def main():
     }
 
     # Parameters to modify (change also the paths in dictNumberModes)
-    MODES = 128
+    MODES = 256
     inStateType = InitialState.TwoModeSqueezed  # Choose between OneMoOneModeSqueezed or TwoModeSqueezed
     squeezingFactors = [0.0, 0.5, 1.0]
-    modeToPlot = 15  # From 1 to MODES
+    modesToPlot = [1, 3, 27, 100]  # From 1 to MODES
     parallelize = True
 
     # Loop
@@ -125,22 +125,24 @@ def main():
     start_time = time.time()
 
     for squeezingFactor in squeezingFactors:
-        modeToPlot -= 1
-        if inStateType not in [InitialState.OneModeSqueezed, InitialState.TwoModeSqueezed]:
-            raise AttributeError(
-                "You have to select between between OneMoOneModeSqueezed or TwoModeSqueezed")
+        for modeToPlot in modesToPlot:
+            modeToPlot -= 1
+            if inStateType not in [InitialState.OneModeSqueezed, InitialState.TwoModeSqueezed]:
+                raise AttributeError(
+                    "You have to select between between OneMoOneModeSqueezed or TwoModeSqueezed")
 
-        simulation = LogNegManager(
-            dataDirectory, inStateType, MODES, instantToPlot=1000,
-            arrayParameters=np.array([squeezingFactor]),
-            parallelize=parallelize
-        )
+            simulation = LogNegManager(
+                dataDirectory, inStateType, MODES, instantToPlot=1000,
+                arrayParameters=np.array([squeezingFactor]),
+                parallelize=parallelize
+            )
 
-        simulation.performTransformation()
-        newBogoliubovTransformation, changeOfBasis, statetoInBasis = simulation.obtainHawkingPartner(modeA=modeToPlot)
-        plotPartnerContributions(HPExpressedInOUTBasis=changeOfBasis, totalModes=MODES, modeA=modeToPlot,
-                                 plotsDirectory=plotsDirectory, dataPlotsDirectory=plotsDataDirectory,
-                                 squeezing=squeezingFactor)
+            simulation.performTransformation()
+            newBogoliubovTransformation, changeOfBasis, statetoInBasis = simulation.obtainHawkingPartner(
+                modeA=modeToPlot)
+            plotPartnerContributions(HPExpressedInOUTBasis=changeOfBasis, totalModes=MODES, modeA=modeToPlot,
+                                     plotsDirectory=plotsDirectory, dataPlotsDirectory=plotsDataDirectory,
+                                     squeezing=squeezingFactor)
 
     end_time = time.time()
     elapsed_time = end_time - start_time
